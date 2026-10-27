@@ -1,0 +1,6 @@
+# Normalize line endings: LF in the repository and in the working tree,
+# so shell scripts, SQL and generated code behave the same on every OS.
+* text=auto eol=lf
+
+*.png binary
+*.gif binary

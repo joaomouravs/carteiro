@@ -1,0 +1,23 @@
+name: carteiro
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: carteiro
+      POSTGRES_PASSWORD: carteiro
+      POSTGRES_DB: carteiro
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 images keep data under a versioned subdirectory of
+      # /var/lib/postgresql, so the volume is mounted at the parent.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carteiro -d carteiro"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

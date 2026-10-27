@@ -1,0 +1,55 @@
+# Task runner: https://taskfile.dev (go install github.com/go-task/task/v3/cmd/task@latest)
+# Chosen over make because it works the same on Windows, macOS and Linux.
+version: "3"
+
+dotenv: [".env"]
+
+vars:
+  COMPOSE: docker compose -f deploy/compose.yaml
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  db:up:
+    desc: Start PostgreSQL and wait until it is healthy
+    cmds:
+      - "{{.COMPOSE}} up -d --wait postgres"
+
+  db:down:
+    desc: Stop PostgreSQL (data is kept in a volume)
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  db:reset:
+    desc: Stop PostgreSQL and delete its data
+    cmds:
+      - "{{.COMPOSE}} down --volumes"
+
+  run:
+    desc: Run the API against the local database
+    deps: [db:up]
+    cmds:
+      - go run ./cmd/carteiro serve
+
+  build:
+    desc: Build the binary into bin/
+    cmds:
+      - go build -o bin/carteiro{{exeExt}} ./cmd/carteiro
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: Run all tests with the race detector (needs cgo and a C compiler; CI runs it on Linux)
+    cmds:
+      - go test -race ./...
+
+  fmt:
+    desc: Format the code
+    cmds:
+      - gofmt -w .
