@@ -12,6 +12,8 @@ x-carteiro: &carteiro
     CARTEIRO_ENCRYPTION_KEY: O8/tj+OGJr/LS/NtwE200Ubox90bcg3mHHEp/6yq4Nw=
     CARTEIRO_ALLOW_HTTP_ENDPOINTS: "true"
     CARTEIRO_ALLOW_PRIVATE_NETWORKS: "true"
+    # Overridable from the shell, for load tests.
+    CARTEIRO_WORKER_CONCURRENCY: ${CARTEIRO_WORKER_CONCURRENCY:-10}
 
 services:
   postgres:
@@ -73,6 +75,21 @@ services:
       # Empty when unset, so other commands still work; the receiver then
       # exits with a message saying what is missing.
       RECEIVER_SECRET: ${RECEIVER_SECRET:-}
+
+  # Load testing (loadtest/), only with --profile loadtest. The sink is the
+  # receiver: it answers 204 at once, so tests measure Carteiro.
+  sink:
+    profiles: [loadtest]
+    image: nginx:1.29.8-alpine
+    volumes:
+      - ../loadtest/sink.conf:/etc/nginx/conf.d/default.conf:ro
+
+  k6:
+    profiles: [loadtest]
+    image: grafana/k6:2.2.0
+    volumes:
+      - ../loadtest:/scripts:ro
+    entrypoint: ["k6"]
 
   # Metrics and the dashboard, only with --profile observability: they are
   # two more images, not needed to run Carteiro.

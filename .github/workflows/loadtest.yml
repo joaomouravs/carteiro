@@ -1,0 +1,108 @@
+name: Load test
+
+# Run by hand (Actions tab, or `gh workflow run loadtest.yml`). It measures
+# delivery throughput and ingest latency on a GitHub-hosted runner, a machine
+# anyone can get, and writes the results to the run's summary. Numbers from a
+# laptop running Docker Desktop vary too much from run to run to publish.
+on:
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: Worker counts to measure
+        default: "1 2 4 8"
+      endpoints:
+        description: Endpoint counts to measure
+        default: "1 16"
+      deliveries:
+        description: Deliveries per run
+        default: "20000"
+      reps:
+        description: Runs per configuration (the table shows median, min and max)
+        default: "3"
+      ingest_rate:
+        description: Events per second for the ingest latency test
+        default: "200"
+      baseline_ref:
+        description: Also measure this commit, for a before/after comparison (empty to skip)
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Inputs reach the scripts through the environment, never by ${{ }}
+    # inside run: blocks, where a crafted value would become shell code.
+    env:
+      WORKERS_LIST: ${{ inputs.workers }}
+      ENDPOINTS_LIST: ${{ inputs.endpoints }}
+      DELIVERIES: ${{ inputs.deliveries }}
+      REPS: ${{ inputs.reps }}
+      RATE: ${{ inputs.ingest_rate }}
+      BASELINE_REF: ${{ inputs.baseline_ref }}
+      COMPOSE: docker compose -f deploy/compose.yaml --profile loadtest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the baseline commit must be available
+
+      - name: Describe the machine
+        run: |
+          {
+            echo "## Machine"
+            echo
+            echo "- CPU: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) vCPUs"
+            echo "- Memory: $(free -h | awk '/^Mem:/ {print $2}')"
+            echo "- Commit: \`$(git rev-parse --short HEAD)\`, $DELIVERIES deliveries per run, $REPS runs each"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Throughput of the baseline commit
+        if: env.BASELINE_REF != ''
+        run: |
+          git worktree add ../baseline "$BASELINE_REF"
+          # Same tag as compose's, so NO_BUILD=1 runs this image.
+          docker build -t carteiro:dev ../baseline
+          {
+            echo "## Delivery throughput at \`$(git -C ../baseline rev-parse --short HEAD)\` (baseline)"
+            echo
+            NO_BUILD=1 bash loadtest/matrix.sh
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          $COMPOSE down --volumes
+
+      - name: Throughput
+        run: |
+          {
+            echo "## Delivery throughput"
+            echo
+            bash loadtest/matrix.sh
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Ingest latency
+        run: |
+          $COMPOSE up -d --build --wait postgres sink api worker
+          # k6 exits non-zero when a threshold fails; that is a result to
+          # report, not a reason to stop.
+          set +e
+          $COMPOSE run --rm k6 run -e RATE="$RATE" -e DURATION=60s /scripts/ingest.js > ingest.txt 2>&1
+          code=$?
+          set -e
+          verdict="all thresholds passed"
+          [ "$code" -ne 0 ] && verdict="a threshold failed (k6 exit code $code)"
+          {
+            echo "## Ingest latency at $RATE events/s: $verdict"
+            echo
+            echo '```'
+            # The summary block, without k6's progress lines.
+            sed -n '/THRESHOLDS/,$p' ingest.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat ingest.txt
+
+      - name: Stop the stack
+        if: always()
+        run: $COMPOSE down --volumes

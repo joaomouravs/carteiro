@@ -38,7 +38,7 @@ internal/
 migrations/            SQL migrations (embedded in the binary)
 examples/receiver/     sample receiver verifying signatures with the official library
 deploy/                docker compose, Prometheus and Grafana config
-loadtest/              k6 scripts
+loadtest/              throughput and k6 ingest scripts (docs/performance.md)
 ```
 
 ## Data model

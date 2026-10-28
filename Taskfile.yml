@@ -90,6 +90,17 @@ tasks:
         -e CGO_ENABLED=1
         golang:1.27.3 sh -c "go test -race -count=1 ./... && cd examples/receiver && go test -race -count=1 ./..."
 
+  loadtest:throughput:
+    desc: Measure delivery throughput; set WORKERS, ENDPOINTS, DELIVERIES (deletes local data)
+    cmds:
+      - bash loadtest/throughput.sh
+
+  loadtest:ingest:
+    desc: Measure ingest latency with k6; set RATE (events/s) and DURATION
+    cmds:
+      - "{{.COMPOSE}} --profile loadtest up -d --build --wait postgres sink api worker"
+      - "{{.COMPOSE}} --profile loadtest run --rm k6 run -e RATE=${RATE:-200} -e DURATION=${DURATION:-60s} /scripts/ingest.js"
+
   lint:
     desc: Run golangci-lint
     cmds:
