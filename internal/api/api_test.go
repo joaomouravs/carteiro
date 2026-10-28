@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -41,6 +43,34 @@ func testCipher(t *testing.T) *crypto.Cipher {
 	return c
 }
 
+// fakeResolver answers lookups from a fixed table, so tests never depend on
+// real DNS. IP literals resolve to themselves, as with net.Resolver; a host
+// listed with no addresses does not exist; any other host resolves to a
+// public address from a documentation range (RFC 5737).
+type fakeResolver map[string][]netip.Addr
+
+func (f fakeResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return []netip.Addr{ip}, nil
+	}
+	addrs, ok := f[host]
+	if !ok {
+		return []netip.Addr{netip.MustParseAddr("203.0.113.10")}, nil
+	}
+	if len(addrs) == 0 {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	return addrs, nil
+}
+
+var testResolver = fakeResolver{
+	"localhost":            {netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")},
+	"internal.example.com": {netip.MustParseAddr("10.0.0.5")},
+	"mixed.example.com":    {netip.MustParseAddr("203.0.113.20"), netip.MustParseAddr("10.0.0.6")},
+	"metadata.example.com": {netip.MustParseAddr("169.254.169.254")},
+	"missing.example.com":  {},
+}
+
 // newClient starts each test from an empty database.
 func newClient(t *testing.T) *testClient {
 	t.Helper()
@@ -51,7 +81,7 @@ func newClientWith(t *testing.T, configure func(*Options)) *testClient {
 	t.Helper()
 	testdb.Require(t, testPool)
 	testdb.Reset(t, testPool)
-	opts := Options{AdminToken: adminToken, Cipher: testCipher(t)}
+	opts := Options{AdminToken: adminToken, Cipher: testCipher(t), Resolver: testResolver}
 	configure(&opts)
 	return &testClient{t: t, h: New(discard, testPool, opts).Handler()}
 }

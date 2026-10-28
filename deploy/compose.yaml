@@ -11,6 +11,7 @@ x-carteiro: &carteiro
     CARTEIRO_ADMIN_TOKEN: dev-admin-token-change-me-0123456789
     CARTEIRO_ENCRYPTION_KEY: O8/tj+OGJr/LS/NtwE200Ubox90bcg3mHHEp/6yq4Nw=
     CARTEIRO_ALLOW_HTTP_ENDPOINTS: "true"
+    CARTEIRO_ALLOW_PRIVATE_NETWORKS: "true"
 
 services:
   postgres:

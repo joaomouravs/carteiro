@@ -161,8 +161,18 @@ Blocked by default: `127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`,
 `192.168.0.0/16`, `169.254.0.0/16`, `fe80::/10`, `fc00::/7`, `100.64.0.0/10`,
 `0.0.0.0/8`, `::`, multicast, and `255.255.255.255`. IPv6 addresses that embed an IPv4
 address (IPv4-mapped `::ffff:a.b.c.d` and NAT64 `64:ff9b::/96`) are judged by the IPv4
-address inside them, so an internal address cannot sneak through in IPv6 form. A
-development flag allows private ranges so local receivers work.
+address inside them, so an internal address cannot sneak through in IPv6 form.
+
+The client also ignores `HTTP_PROXY` and friends, because through a proxy the dialer
+would check the proxy's address instead of the receiver's, and it does not follow
+redirects (NFR-SEC-04), because a public receiver could redirect to an internal URL.
+Endpoint creation resolves the host and rejects it if any of its addresses is blocked
+(FR-07); that check only gives an early error, and the dialer remains the guard.
+
+`CARTEIRO_ALLOW_PRIVATE_NETWORKS` (development only) opens loopback and the private
+ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) so receivers on
+localhost or in the compose network work. Link-local stays blocked even then: no
+receiver lives there, and it holds the cloud metadata service.
 
 ## Observability
 

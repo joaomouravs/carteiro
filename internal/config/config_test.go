@@ -46,22 +46,23 @@ func TestLoadDefaults(t *testing.T) {
 	if !bytes.Equal(cfg.EncryptionKey, bytes.Repeat([]byte{1}, 32)) {
 		t.Errorf("EncryptionKey = %x", cfg.EncryptionKey)
 	}
-	if cfg.HTTPAddr != ":8080" || cfg.LogLevel != slog.LevelInfo || cfg.ShutdownTimeout != 15*time.Second || cfg.AllowHTTPEndpoints {
+	if cfg.HTTPAddr != ":8080" || cfg.LogLevel != slog.LevelInfo || cfg.ShutdownTimeout != 15*time.Second || cfg.AllowHTTPEndpoints || cfg.AllowPrivateNetworks {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
 }
 
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := Load(mapLookup(withRequired(map[string]string{
-		"CARTEIRO_HTTP_ADDR":            "127.0.0.1:9000",
-		"CARTEIRO_LOG_LEVEL":            "debug",
-		"CARTEIRO_SHUTDOWN_TIMEOUT":     "30s",
-		"CARTEIRO_ALLOW_HTTP_ENDPOINTS": "true",
+		"CARTEIRO_HTTP_ADDR":              "127.0.0.1:9000",
+		"CARTEIRO_LOG_LEVEL":              "debug",
+		"CARTEIRO_SHUTDOWN_TIMEOUT":       "30s",
+		"CARTEIRO_ALLOW_HTTP_ENDPOINTS":   "true",
+		"CARTEIRO_ALLOW_PRIVATE_NETWORKS": "true",
 	})))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.LogLevel != slog.LevelDebug || cfg.ShutdownTimeout != 30*time.Second || !cfg.AllowHTTPEndpoints {
+	if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.LogLevel != slog.LevelDebug || cfg.ShutdownTimeout != 30*time.Second || !cfg.AllowHTTPEndpoints || !cfg.AllowPrivateNetworks {
 		t.Errorf("overrides not applied: %+v", cfg)
 	}
 }
@@ -85,6 +86,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"encryption key not base64", withRequired(map[string]string{"CARTEIRO_ENCRYPTION_KEY": "not base64!"}), []string{"must be 32 bytes"}},
 		{"encryption key too short", withRequired(map[string]string{"CARTEIRO_ENCRYPTION_KEY": "AQEBAQ=="}), []string{"must be 32 bytes"}},
 		{"allow http not a bool", withRequired(map[string]string{"CARTEIRO_ALLOW_HTTP_ENDPOINTS": "sure"}), []string{"CARTEIRO_ALLOW_HTTP_ENDPOINTS"}},
+		{"allow private not a bool", withRequired(map[string]string{"CARTEIRO_ALLOW_PRIVATE_NETWORKS": "yes please"}), []string{"CARTEIRO_ALLOW_PRIVATE_NETWORKS"}},
 		{"address without port", withRequired(map[string]string{"CARTEIRO_HTTP_ADDR": "localhost"}), []string{"CARTEIRO_HTTP_ADDR"}},
 		{"non-positive timeout", withRequired(map[string]string{"CARTEIRO_SHUTDOWN_TIMEOUT": "0s"}), []string{"must be positive"}},
 		{

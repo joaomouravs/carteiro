@@ -74,12 +74,16 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 	if cfg.AllowHTTPEndpoints {
 		logger.Warn("plain-http endpoint URLs are allowed; use only for local development")
 	}
+	if cfg.AllowPrivateNetworks {
+		logger.Warn("endpoints on loopback and private networks are allowed; use only for local development")
+	}
 
 	srv := &http.Server{
 		Handler: api.New(logger, pool, api.Options{
-			AdminToken:         cfg.AdminToken,
-			Cipher:             cipher,
-			AllowHTTPEndpoints: cfg.AllowHTTPEndpoints,
+			AdminToken:           cfg.AdminToken,
+			Cipher:               cipher,
+			AllowHTTPEndpoints:   cfg.AllowHTTPEndpoints,
+			AllowPrivateNetworks: cfg.AllowPrivateNetworks,
 		}).Handler(),
 		// Without these, a client that opens a connection and sends bytes
 		// slowly (Slowloris) holds a goroutine and a socket forever.

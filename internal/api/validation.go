@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -19,13 +21,18 @@ const (
 // A restricted alphabet keeps event types safe to show in logs, URLs and UIs.
 var eventTypePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// hostLookupTimeout bounds the DNS lookup in validateEndpointURL, so a slow
+// resolver cannot hold an API request for long.
+const hostLookupTimeout = 5 * time.Second
+
 // validateEndpointURL checks a receiver URL (FR-07) and returns it normalized.
 //
-// FR-07 also rejects hosts that resolve to blocked IP ranges. That check
-// arrives with internal/netguard in M2, where it also guards every
-// connection, which is the check that actually stops SSRF: a hostname can
-// resolve to a safe address now and to an internal one at delivery time.
-func (s *Server) validateEndpointURL(raw string) (string, []fieldError) {
+// It also rejects hosts that resolve to a blocked address. That check gives
+// the producer an early, clear error, but it is not what stops SSRF: a
+// hostname can resolve to a safe address now and to an internal one at
+// delivery time. The delivery client checks every connection again
+// (netguard.NewClient).
+func (s *Server) validateEndpointURL(ctx context.Context, raw string) (string, []fieldError) {
 	invalid := func(msg string) (string, []fieldError) { return "", []fieldError{{"url", msg}} }
 
 	raw = strings.TrimSpace(raw)
@@ -52,6 +59,23 @@ func (s *Server) validateEndpointURL(raw string) (string, []fieldError) {
 	}
 	if u.Fragment != "" {
 		return invalid("must not contain a fragment")
+	}
+
+	// The cheap checks come first, so a malformed URL never costs a lookup.
+	ctx, cancel := context.WithTimeout(ctx, hostLookupTimeout)
+	defer cancel()
+	addrs, err := s.resolver.LookupNetIP(ctx, "ip", u.Hostname())
+	if err != nil || len(addrs) == 0 {
+		return invalid("host could not be resolved")
+	}
+	// Every address must be allowed, not just one: a hostname can resolve to
+	// a public and an internal address at once, and the client may dial
+	// either. The message does not say which address was refused, so the API
+	// cannot be used to map internal DNS names.
+	for _, a := range addrs {
+		if !s.netPolicy.Allows(a) {
+			return invalid("must not point to a loopback, private or other internal network address")
+		}
 	}
 	return u.String(), nil
 }

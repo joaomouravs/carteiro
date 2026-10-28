@@ -52,7 +52,7 @@ func (s *Server) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	endpointURL, errs := s.validateEndpointURL(in.URL)
+	endpointURL, errs := s.validateEndpointURL(r.Context(), in.URL)
 	desc, descErrs := validateDescription(in.Description)
 	types, typeErrs := validateEventTypes(in.EventTypes)
 	if errs = append(append(errs, descErrs...), typeErrs...); len(errs) > 0 {
@@ -162,7 +162,7 @@ func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
 	params := store.UpdateEndpointParams{ID: id, ApplicationID: applicationIDFrom(r.Context())}
 	var errs []fieldError
 	if in.URL != nil {
-		u, e := s.validateEndpointURL(*in.URL)
+		u, e := s.validateEndpointURL(r.Context(), *in.URL)
 		params.URL, errs = &u, append(errs, e...)
 	}
 	if in.Description != nil {

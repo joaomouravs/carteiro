@@ -26,6 +26,11 @@ type Config struct {
 	// AllowHTTPEndpoints accepts plain-http endpoint URLs. Only for local
 	// development: webhooks over http can be read and forged in transit.
 	AllowHTTPEndpoints bool
+	// AllowPrivateNetworks lets endpoints and deliveries reach loopback and
+	// private addresses, so receivers on localhost or in the same compose
+	// network work. Only for local development: in production it would let
+	// producers reach Carteiro's internal network (SSRF).
+	AllowPrivateNetworks bool
 	// HTTPAddr is the host:port the API listens on.
 	HTTPAddr string
 	// LogLevel is the minimum level written to the log.
@@ -74,14 +79,20 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		cfg.EncryptionKey = key
 	}
 
-	if v, ok := lookup("CARTEIRO_ALLOW_HTTP_ENDPOINTS"); ok {
+	parseBool := func(name string, dst *bool) {
+		v, ok := lookup(name)
+		if !ok {
+			return
+		}
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("CARTEIRO_ALLOW_HTTP_ENDPOINTS: must be true or false, got %q", v))
-		} else {
-			cfg.AllowHTTPEndpoints = b
+			errs = append(errs, fmt.Errorf("%s: must be true or false, got %q", name, v))
+			return
 		}
+		*dst = b
 	}
+	parseBool("CARTEIRO_ALLOW_HTTP_ENDPOINTS", &cfg.AllowHTTPEndpoints)
+	parseBool("CARTEIRO_ALLOW_PRIVATE_NETWORKS", &cfg.AllowPrivateNetworks)
 
 	if v, ok := lookup("CARTEIRO_HTTP_ADDR"); ok {
 		if _, _, err := net.SplitHostPort(v); err != nil {

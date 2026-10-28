@@ -118,6 +118,15 @@ func TestEndpointURLValidation(t *testing.T) {
 		{"credentials", "https://user:pass@example.com/hook"},
 		{"fragment", "https://example.com/hook#section"},
 		{"too long", "https://example.com/" + strings.Repeat("a", maxURLLen)},
+
+		// Blocked addresses (FR-07), written directly or behind a hostname.
+		{"loopback address", "https://127.0.0.1/hook"},
+		{"IPv4-mapped loopback", "https://[::ffff:127.0.0.1]/hook"},
+		{"cloud metadata address", "https://169.254.169.254/latest/meta-data/"},
+		{"host resolving to a private address", "https://internal.example.com/hook"},
+		{"host with one private address among public ones", "https://mixed.example.com/hook"},
+		{"localhost", "https://localhost/hook"},
+		{"host that does not resolve", "https://missing.example.com/hook"},
 	}
 	for _, tt := range invalid {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,9 +137,20 @@ func TestEndpointURLValidation(t *testing.T) {
 		})
 	}
 
-	t.Run("http allowed by configuration", func(t *testing.T) {
-		dev := newClientWith(t, func(o *Options) { o.AllowHTTPEndpoints = true })
-		dev.createEndpoint(dev.producer(), map[string]any{"url": "http://localhost:9000/hook"})
+	t.Run("local receivers allowed by configuration", func(t *testing.T) {
+		dev := newClientWith(t, func(o *Options) {
+			o.AllowHTTPEndpoints = true
+			o.AllowPrivateNetworks = true
+		})
+		key := dev.producer()
+		dev.createEndpoint(key, map[string]any{"url": "http://localhost:9000/hook"})
+		dev.createEndpoint(key, map[string]any{"url": "http://internal.example.com/hook"})
+
+		// Development mode never opens the metadata service.
+		p := wantProblem(t, dev.do("POST", "/v1/endpoints", key, map[string]any{"url": "http://metadata.example.com/"}), http.StatusUnprocessableEntity)
+		if len(p.Errors) != 1 || p.Errors[0].Field != "url" {
+			t.Errorf("errors = %+v, want one on url", p.Errors)
+		}
 	})
 }
 

@@ -2,13 +2,17 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/joaomouravs/carteiro/internal/crypto"
+	"github.com/joaomouravs/carteiro/internal/netguard"
 	"github.com/joaomouravs/carteiro/internal/store"
 )
 
@@ -19,6 +23,17 @@ type Options struct {
 	Cipher *crypto.Cipher
 	// AllowHTTPEndpoints accepts plain-http endpoint URLs (development only).
 	AllowHTTPEndpoints bool
+	// AllowPrivateNetworks accepts endpoints on loopback and private
+	// addresses (development only).
+	AllowPrivateNetworks bool
+	// Resolver looks up endpoint hosts (FR-07). Nil means net.DefaultResolver;
+	// tests set a fake one so they do not depend on real DNS.
+	Resolver Resolver
+}
+
+// Resolver is the part of *net.Resolver the API uses.
+type Resolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }
 
 // Server holds the dependencies shared by every handler.
@@ -32,10 +47,16 @@ type Server struct {
 	// not kept in memory longer than needed.
 	adminTokenHash     [sha256.Size]byte
 	allowHTTPEndpoints bool
+	netPolicy          netguard.Policy
+	resolver           Resolver
 }
 
 // New returns a Server backed by pool.
 func New(logger *slog.Logger, pool *pgxpool.Pool, opts Options) *Server {
+	var resolver Resolver = net.DefaultResolver
+	if opts.Resolver != nil {
+		resolver = opts.Resolver
+	}
 	return &Server{
 		logger:             logger,
 		db:                 pool,
@@ -44,6 +65,8 @@ func New(logger *slog.Logger, pool *pgxpool.Pool, opts Options) *Server {
 		cipher:             opts.Cipher,
 		adminTokenHash:     sha256.Sum256([]byte(opts.AdminToken)),
 		allowHTTPEndpoints: opts.AllowHTTPEndpoints,
+		netPolicy:          netguard.Policy{AllowPrivateNetworks: opts.AllowPrivateNetworks},
+		resolver:           resolver,
 	}
 }
 

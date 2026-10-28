@@ -1,3 +1,4 @@
+| `CARTEIRO_ALLOW_PRIVATE_NETWORKS` | `false` | Let endpoints and deliveries reach loopback and private addresses (link-local and cloud metadata stay blocked); development only |
 # Carteiro
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
