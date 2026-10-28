@@ -20,7 +20,7 @@ shown at any point.
 - [x] Problem+json errors (RFC 9457), cursor pagination
 
 ## M2: Delivery
-- [ ] Standard Webhooks signing, tested against the spec's vectors (FR-13)
+- [x] Standard Webhooks signing, tested against the official library's test vector (FR-13)
 - [ ] SSRF-safe HTTP client (NFR-SEC-03, 04)
 - [ ] Worker: lease-based claiming, fencing, lease recovery (ADR 0003)
 - [ ] Backoff with jitter, `Retry-After`, `dead` state (FR-14, 15)

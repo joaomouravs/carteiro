@@ -180,7 +180,7 @@ development flag allows private ranges so local receivers work.
 
 | Level | What | How |
 |---|---|---|
-| Unit | Backoff, signing (against the spec's test vectors), SSRF IP checks, idempotency conflict logic | `go test`, table-driven |
+| Unit | Backoff, signing (against the official library's test vector), SSRF IP checks, idempotency conflict logic | `go test`, table-driven |
 | Integration | Repository queries, claiming, fencing, migrations | Real PostgreSQL via Testcontainers |
 | End-to-end | Publish → deliver → verify signature; receiver that fails N times then recovers | Carteiro in-process + `httptest` receiver |
 | Concurrency | N workers draining the queue: every delivery succeeds, no row is claimed twice concurrently | Integration test with the race detector |

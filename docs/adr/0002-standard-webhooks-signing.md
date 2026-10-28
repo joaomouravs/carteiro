@@ -23,4 +23,5 @@ HMAC-SHA256 over `id.timestamp.body`, sent in the `webhook-id`, `webhook-timesta
   deduplicate, which at-least-once delivery requires ([ADR 0004](0004-at-least-once-delivery.md)).
 - The spec allows several signatures in one header, which gives secret rotation without
   downtime for free.
-- The signing code is tested against the spec's published test vectors.
+- The signing code is tested against the test vector of the official Go library (the spec
+  itself publishes none), so it produces exactly what every official library verifies.
