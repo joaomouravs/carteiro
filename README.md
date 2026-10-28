@@ -2,16 +2,57 @@
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** delivery (M2) and operations (M3) done: events are signed, delivered, retried,
-recorded and queryable; failing endpoints are disabled and their deliveries can be replayed;
-secrets rotate without downtime; metrics feed a Grafana dashboard. Next is M4: load and
-failure testing, with published numbers. See the [roadmap](docs/roadmap.md).
+[![CI](https://github.com/joaomouravs/carteiro/actions/workflows/ci.yml/badge.svg)](https://github.com/joaomouravs/carteiro/actions/workflows/ci.yml)
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
 signs it with the [Standard Webhooks](https://www.standardwebhooks.com/) spec, retries
 with exponential backoff, disables endpoints that keep failing, and records every attempt
 so you can inspect and replay what went wrong.
+
+![The dashboard: events, an event's deliveries, a failing delivery's attempts, and endpoint health](docs/img/dashboard.gif)
+
+## Engineering highlights
+
+- **PostgreSQL is the queue.** Workers claim deliveries with `FOR UPDATE SKIP LOCKED` and
+  a short lease, then send with no transaction open; `attempt_count` is a fencing token,
+  so a worker that lost its lease cannot overwrite a newer result
+  ([ADR 0001](docs/adr/0001-postgres-as-queue.md), [ADR 0003](docs/adr/0003-lease-based-claiming.md)).
+  A test claims 200 deliveries with 8 workers at once; without `SKIP LOCKED` it sees over
+  200 duplicates.
+- **Killing a worker loses nothing.** [`crash.sh`](loadtest/crash.sh) sends `SIGKILL` to
+  a worker halfway through 20,000 deliveries: all of them arrive, and the ones it held
+  come back when their lease expires.
+- **Measured, then fixed.** Load testing showed throughput flipping between about 450 and
+  1,400 deliveries/s for the same setup: a lock convoy on the endpoint row, held across
+  every commit's fsync. [How it was found and fixed](docs/performance.md).
+- **SSRF-safe by construction.** The guard runs in the dialer, on the address each
+  connection is about to use, so DNS rebinding cannot bypass it; IPv4 hidden in IPv6
+  (`::ffff:`, NAT64) is unwrapped first, and redirects are not followed.
+- **Compatible, and proven so.** Deliveries follow Standard Webhooks; the example
+  receiver's tests sign with Carteiro's code and verify with the official library, in CI.
+- **The dashboard never hands the API key to the browser.** It is a separate Next.js app
+  on the public API; the key stays on its server in an encrypted `httpOnly` cookie, and a
+  build that imports the API client into a client component fails
+  ([ADR 0007](docs/adr/0007-dashboard-as-a-separate-nextjs-app.md)).
+
+## How it works
+
+```mermaid
+flowchart LR
+    P[Producer] -- "POST /v1/events" --> API
+    API -- "1 transaction: event + deliveries" --> DB[(PostgreSQL)]
+    W1[Worker] -- "claim with a lease<br/>FOR UPDATE SKIP LOCKED" --> DB
+    W2[Worker] -- claim --> DB
+    W1 -- "signed POST" --> R1[Receiver A]
+    W2 -- "signed POST" --> R2[Receiver B]
+    W1 -- "record attempt<br/>fenced by attempt_count" --> DB
+    D[Dashboard] -- "public API" --> API
+```
+
+Publishing stores the event and one delivery per subscribed endpoint in one transaction,
+so an accepted event can never be lost before it is queued. Workers can run anywhere,
+any number of them, against the same database. More in [architecture](docs/architecture.md).
 
 ## Guarantees
 
