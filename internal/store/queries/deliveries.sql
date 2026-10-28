@@ -15,6 +15,9 @@
 WITH due AS (
     SELECT id FROM deliveries
     WHERE status = 'pending' AND next_attempt_at <= now()
+      -- Disabling an endpoint kills its pending deliveries, but one published
+      -- at the same moment can slip past; it waits here until re-enabled.
+      AND EXISTS (SELECT 1 FROM endpoints e WHERE e.id = deliveries.endpoint_id AND e.status = 'active')
     ORDER BY next_attempt_at
     LIMIT sqlc.arg('limit')::bigint
     FOR UPDATE SKIP LOCKED
@@ -131,3 +134,11 @@ WHERE delivery_id = sqlc.arg('delivery_id')
   AND (sqlc.narg('before')::uuid IS NULL OR id < sqlc.narg('before')::uuid)
 ORDER BY id DESC
 LIMIT sqlc.arg('limit');
+
+-- KillPendingDeliveries gives up on every pending delivery of an endpoint
+-- that was just disabled. They stay replayable (FR-18) once the endpoint is
+-- fixed and enabled again.
+-- name: KillPendingDeliveries :execrows
+UPDATE deliveries
+SET status = 'dead', next_attempt_at = NULL, updated_at = now()
+WHERE endpoint_id = sqlc.arg('endpoint_id') AND status = 'pending';

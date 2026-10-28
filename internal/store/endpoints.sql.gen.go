@@ -84,6 +84,63 @@ func (q *Queries) DeleteEndpoint(ctx context.Context, arg DeleteEndpointParams) 
 	return result.RowsAffected(), nil
 }
 
+const disableEndpoint = `-- name: DisableEndpoint :execrows
+UPDATE endpoints
+SET status = 'disabled', disabled_reason = $1, updated_at = now()
+WHERE id = $2 AND status = 'active'
+`
+
+type DisableEndpointParams struct {
+	Reason *string
+	ID     uuid.UUID
+}
+
+func (q *Queries) DisableEndpoint(ctx context.Context, arg DisableEndpointParams) (int64, error) {
+	result, err := q.db.Exec(ctx, disableEndpoint, arg.Reason, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const enableEndpoint = `-- name: EnableEndpoint :one
+UPDATE endpoints
+SET status               = 'active',
+    disabled_reason      = NULL,
+    consecutive_failures = 0,
+    failing_since        = NULL,
+    updated_at           = now()
+WHERE id = $1 AND application_id = $2
+RETURNING id, application_id, url, description, event_types, status, disabled_reason, consecutive_failures, failing_since, created_at, updated_at
+`
+
+type EnableEndpointParams struct {
+	ID            uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+// EnableEndpoint re-enables an endpoint (FR-09) with a clean failure record,
+// so the next failure does not disable it again at once. Enabling an active
+// endpoint changes nothing but its failure counters.
+func (q *Queries) EnableEndpoint(ctx context.Context, arg EnableEndpointParams) (Endpoint, error) {
+	row := q.db.QueryRow(ctx, enableEndpoint, arg.ID, arg.ApplicationID)
+	var i Endpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.URL,
+		&i.Description,
+		&i.EventTypes,
+		&i.Status,
+		&i.DisabledReason,
+		&i.ConsecutiveFailures,
+		&i.FailingSince,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getEndpoint = `-- name: GetEndpoint :one
 SELECT id, application_id, url, description, event_types, status, disabled_reason, consecutive_failures, failing_since, created_at, updated_at FROM endpoints
 WHERE id = $1 AND application_id = $2
@@ -157,6 +214,42 @@ func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordEndpointResult = `-- name: RecordEndpointResult :one
+
+UPDATE endpoints
+SET consecutive_failures = CASE WHEN $1::boolean THEN 0 ELSE consecutive_failures + 1 END,
+    failing_since        = CASE WHEN $1::boolean THEN NULL ELSE COALESCE(failing_since, now()) END
+WHERE id = $2
+RETURNING status,
+          consecutive_failures,
+          (failing_since IS NOT NULL
+           AND failing_since <= now() - $3::bigint * interval '1 millisecond')::boolean AS failing_long_enough
+`
+
+type RecordEndpointResultParams struct {
+	Success      bool
+	ID           uuid.UUID
+	FailingForMs int64
+}
+
+type RecordEndpointResultRow struct {
+	Status              string
+	ConsecutiveFailures int32
+	FailingLongEnough   bool
+}
+
+// Endpoint health (FR-08), written by the worker in the same transaction as
+// each attempt.
+// RecordEndpointResult updates the failure streak after an attempt and
+// reports whether it has lasted at least failing_for_ms. updated_at is left
+// alone: it tracks changes to the endpoint's configuration, not its health.
+func (q *Queries) RecordEndpointResult(ctx context.Context, arg RecordEndpointResultParams) (RecordEndpointResultRow, error) {
+	row := q.db.QueryRow(ctx, recordEndpointResult, arg.Success, arg.ID, arg.FailingForMs)
+	var i RecordEndpointResultRow
+	err := row.Scan(&i.Status, &i.ConsecutiveFailures, &i.FailingLongEnough)
+	return i, err
 }
 
 const updateEndpoint = `-- name: UpdateEndpoint :one

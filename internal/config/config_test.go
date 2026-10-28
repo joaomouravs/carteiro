@@ -50,25 +50,29 @@ func TestLoadDefaults(t *testing.T) {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.WorkerConcurrency != 10 || cfg.DeliveryTimeout != 15*time.Second || cfg.PollInterval != time.Second ||
-		cfg.RetryBase != 30*time.Second || cfg.RetryCap != 6*time.Hour || cfg.MaxAttempts != 12 {
+		cfg.RetryBase != 30*time.Second || cfg.RetryCap != 6*time.Hour || cfg.MaxAttempts != 12 ||
+		cfg.DisableAfter != 120*time.Hour || cfg.DisableMinFailures != 10 {
 		t.Errorf("unexpected worker defaults: %+v", cfg)
 	}
 }
 
 func TestLoadWorkerOverrides(t *testing.T) {
 	cfg, err := Load(mapLookup(withRequired(map[string]string{
-		"CARTEIRO_WORKER_CONCURRENCY": "50",
-		"CARTEIRO_DELIVERY_TIMEOUT":   "5s",
-		"CARTEIRO_POLL_INTERVAL":      "250ms",
-		"CARTEIRO_RETRY_BASE":         "1m",
-		"CARTEIRO_RETRY_CAP":          "1h",
-		"CARTEIRO_MAX_ATTEMPTS":       "5",
+		"CARTEIRO_WORKER_CONCURRENCY":   "50",
+		"CARTEIRO_DELIVERY_TIMEOUT":     "5s",
+		"CARTEIRO_POLL_INTERVAL":        "250ms",
+		"CARTEIRO_RETRY_BASE":           "1m",
+		"CARTEIRO_RETRY_CAP":            "1h",
+		"CARTEIRO_MAX_ATTEMPTS":         "5",
+		"CARTEIRO_DISABLE_AFTER":        "48h",
+		"CARTEIRO_DISABLE_MIN_FAILURES": "3",
 	})))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.WorkerConcurrency != 50 || cfg.DeliveryTimeout != 5*time.Second || cfg.PollInterval != 250*time.Millisecond ||
-		cfg.RetryBase != time.Minute || cfg.RetryCap != time.Hour || cfg.MaxAttempts != 5 {
+		cfg.RetryBase != time.Minute || cfg.RetryCap != time.Hour || cfg.MaxAttempts != 5 ||
+		cfg.DisableAfter != 48*time.Hour || cfg.DisableMinFailures != 3 {
 		t.Errorf("overrides not applied: %+v", cfg)
 	}
 }
@@ -116,6 +120,8 @@ func TestLoadInvalid(t *testing.T) {
 		{"zero concurrency", withRequired(map[string]string{"CARTEIRO_WORKER_CONCURRENCY": "0"}), []string{"CARTEIRO_WORKER_CONCURRENCY: must be a whole number from 1 to 1000"}},
 		{"concurrency with a typo", withRequired(map[string]string{"CARTEIRO_WORKER_CONCURRENCY": "100000"}), []string{"CARTEIRO_WORKER_CONCURRENCY"}},
 		{"max attempts not a number", withRequired(map[string]string{"CARTEIRO_MAX_ATTEMPTS": "twelve"}), []string{"CARTEIRO_MAX_ATTEMPTS"}},
+		{"disable after in days", withRequired(map[string]string{"CARTEIRO_DISABLE_AFTER": "5d"}), []string{"CARTEIRO_DISABLE_AFTER"}},
+		{"zero failures to disable", withRequired(map[string]string{"CARTEIRO_DISABLE_MIN_FAILURES": "0"}), []string{"CARTEIRO_DISABLE_MIN_FAILURES"}},
 		{"cap below base", withRequired(map[string]string{"CARTEIRO_RETRY_BASE": "1h", "CARTEIRO_RETRY_CAP": "30m"}), []string{"CARTEIRO_RETRY_CAP (30m0s) must not be less than CARTEIRO_RETRY_BASE (1h0m0s)"}},
 		{
 			name: "every error reported at once",

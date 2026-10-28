@@ -305,3 +305,36 @@ func TestEndpointsRequireAPIKey(t *testing.T) {
 		wantProblem(t, c.do("GET", "/v1/endpoints", token, nil), http.StatusUnauthorized)
 	}
 }
+
+// TestEnableEndpoint is FR-09: a disabled endpoint can be enabled again, with
+// a clean failure record, and only by its own application.
+func TestEnableEndpoint(t *testing.T) {
+	c := newClient(t)
+	key := c.producer()
+	ep := c.createEndpoint(key, map[string]any{"url": "https://example.com/hook"})
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE endpoints SET status = 'disabled', disabled_reason = 'failing',
+		       consecutive_failures = 12, failing_since = now() - interval '6 days'
+		WHERE id = $1`, ep.ID); err != nil {
+		t.Fatal(err)
+	}
+	path := "/v1/endpoints/" + ep.ID.String()
+	before := decode[endpointResponse](t, c.do("GET", path, key, nil))
+	if before.Status != "disabled" || before.DisabledReason == nil || *before.DisabledReason != "failing" ||
+		before.ConsecutiveFailures != 12 || before.FailingSince == nil {
+		t.Fatalf("disabled endpoint = %+v", before)
+	}
+
+	other := c.createKey(c.createApp("other").ID).Key
+	wantProblem(t, c.do("POST", path+"/enable", other, nil), http.StatusNotFound)
+
+	rec := c.do("POST", path+"/enable", key, nil)
+	wantStatus(t, rec, http.StatusOK)
+	after := decode[endpointResponse](t, rec)
+	if after.Status != "active" || after.DisabledReason != nil || after.ConsecutiveFailures != 0 || after.FailingSince != nil {
+		t.Errorf("enabled endpoint = %+v, want active with a clean record", after)
+	}
+	// Enabling again is harmless.
+	wantStatus(t, c.do("POST", path+"/enable", key, nil), http.StatusOK)
+	wantProblem(t, c.do("POST", "/v1/endpoints/"+uuid.NewString()+"/enable", key, nil), http.StatusNotFound)
+}

@@ -61,7 +61,22 @@ type Options struct {
 	Backoff      Backoff
 	// NetPolicy decides which addresses deliveries may reach (NFR-SEC-03).
 	NetPolicy netguard.Policy
+	// An endpoint is disabled once it has failed DisableMinFailures times in
+	// a row over at least DisableAfter (FR-08). Both must hold: a busy
+	// endpoint can fail ten times in a minute of downtime, and a quiet one
+	// can go days between two failures.
+	DisableAfter       time.Duration
+	DisableMinFailures int
 }
+
+// Reasons an endpoint is disabled, as stored in endpoints.disabled_reason.
+const (
+	// reasonGone: the receiver answered 410 Gone, which means "this URL is
+	// not coming back"; there is no point in retrying.
+	reasonGone = "gone"
+	// reasonFailing: it kept failing for the configured period.
+	reasonFailing = "failing"
+)
 
 // Worker claims due deliveries and sends them. Any number of workers, in one
 // process or many, can run against the same database (NFR-REL-05).
@@ -228,6 +243,23 @@ type result struct {
 	body       string
 	retryAfter time.Duration
 	err        error
+	// internal means the attempt failed on Carteiro's side, before any
+	// request was sent. It is not held against the endpoint's health.
+	internal bool
+}
+
+// disableReason decides whether an attempt's outcome disables the endpoint,
+// given its failure streak after the attempt.
+func (w *Worker) disableReason(res result, success bool, h store.RecordEndpointResultRow) string {
+	switch {
+	case success:
+		return ""
+	case res.status == http.StatusGone:
+		return reasonGone
+	case int(h.ConsecutiveFailures) >= w.opts.DisableMinFailures && h.FailingLongEnough:
+		return reasonFailing
+	}
+	return ""
 }
 
 // deliver makes one attempt and records it.
@@ -236,8 +268,9 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 	res := w.send(ctx, j)
 	duration := time.Since(started)
 
+	success := res.err == nil && res.status >= 200 && res.status <= 299
 	status, retryIn := statusSucceeded, (*int64)(nil)
-	if res.err != nil || res.status < 200 || res.status > 299 {
+	if !success {
 		if delay, ok := w.opts.Backoff.Next(int(j.attempt), res.retryAfter); ok {
 			ms := delay.Milliseconds()
 			status, retryIn = statusPending, &ms
@@ -262,10 +295,42 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 	}
 
 	log := w.logger.With("delivery_id", j.ID, "endpoint_id", j.EndpointID, "attempt", j.attempt)
-	var fenced bool
+	var (
+		fenced   bool
+		disabled string // the reason, if this attempt disabled the endpoint
+	)
 	err := store.InTx(ctx, w.pool, func(q *store.Queries) error {
 		if err := q.InsertAttempt(ctx, attempt); err != nil {
 			return fmt.Errorf("insert attempt: %w", err)
+		}
+		// Every attempt to the same endpoint updates its row, so concurrent
+		// deliveries to one endpoint take turns on that row lock for the
+		// few milliseconds this transaction lasts. It cannot deadlock: these
+		// transactions lock their own delivery, then the endpoint. Killing
+		// pending deliveries locks more deliveries after the endpoint, but
+		// only pending ones, and the only transactions that lock a pending
+		// delivery are claims, which read endpoints without locking them.
+		if !res.internal {
+			h, err := q.RecordEndpointResult(ctx, store.RecordEndpointResultParams{
+				ID: j.EndpointID, Success: success, FailingForMs: w.opts.DisableAfter.Milliseconds(),
+			})
+			if err != nil {
+				return fmt.Errorf("record endpoint result: %w", err)
+			}
+			if reason := w.disableReason(res, success, h); reason != "" && h.Status == "active" {
+				if _, err := q.DisableEndpoint(ctx, store.DisableEndpointParams{ID: j.EndpointID, Reason: &reason}); err != nil {
+					return fmt.Errorf("disable endpoint: %w", err)
+				}
+				if _, err := q.KillPendingDeliveries(ctx, j.EndpointID); err != nil {
+					return fmt.Errorf("kill pending deliveries: %w", err)
+				}
+				disabled, h.Status = reason, "disabled"
+			}
+			// No retry for an endpoint that is disabled, by this attempt or
+			// before it (this delivery was already in flight then).
+			if h.Status != "active" && status == statusPending {
+				status, retryIn = statusDead, nil
+			}
 		}
 		n, err := q.CompleteDelivery(ctx, store.CompleteDeliveryParams{
 			ID: j.ID, AttemptCount: j.attempt, Status: status, RetryInMs: retryIn,
@@ -278,6 +343,9 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 		// The lease will expire and the delivery will be sent again: a
 		// duplicate, which at-least-once delivery allows (ADR 0004).
 		log.Error("record attempt", "err", err)
+	case disabled != "":
+		log.Warn("endpoint disabled; its pending deliveries are now dead", "reason", disabled,
+			"response_status", res.status, "err", res.err)
 	case fenced:
 		log.Warn("lease lost before the result was recorded; result discarded", "status", status)
 	case status == statusSucceeded:
@@ -307,14 +375,14 @@ func (w *Worker) send(ctx context.Context, j job) result {
 		s, err := w.cipher.Decrypt(ct, j.EndpointID[:])
 		if err != nil {
 			w.logger.Error("decrypt endpoint secret", "endpoint_id", j.EndpointID, "err", err)
-			return result{err: errUnreadableSecret}
+			return result{err: errUnreadableSecret, internal: true}
 		}
 		secrets[i] = s
 	}
 
 	body, err := json.Marshal(envelope{Type: j.EventType, Timestamp: j.EventCreatedAt.UTC(), Data: j.Payload})
 	if err != nil {
-		return result{err: fmt.Errorf("encode body: %w", err)}
+		return result{err: fmt.Errorf("encode body: %w", err), internal: true}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, j.URL, bytes.NewReader(body))
 	if err != nil {
@@ -327,7 +395,7 @@ func (w *Worker) send(ctx context.Context, j job) result {
 	// webhook-id is the event id, the same on every attempt, so receivers
 	// can deduplicate (ADR 0004).
 	if err := signing.SetHeaders(req.Header, secrets, j.EventID.String(), time.Now(), body); err != nil {
-		return result{err: err}
+		return result{err: err, internal: true}
 	}
 
 	resp, err := w.client.Do(req)

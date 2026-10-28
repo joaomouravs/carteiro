@@ -89,6 +89,8 @@ curl -s localhost:8080/v1/events/$EVENT/deliveries -H "Authorization: Bearer $KE
 | `CARTEIRO_RETRY_BASE` | `30s` | First retry delay ceiling; it doubles after each failure |
 | `CARTEIRO_RETRY_CAP` | `6h` | Longest wait between two attempts |
 | `CARTEIRO_MAX_ATTEMPTS` | `12` | Attempts before a delivery is marked `dead` (1 to 100) |
+| `CARTEIRO_DISABLE_AFTER` | `120h` | An endpoint is disabled once it has failed for this long... |
+| `CARTEIRO_DISABLE_MIN_FAILURES` | `10` | ...and at least this many times in a row; both must hold |
 
 ## API
 
@@ -158,6 +160,7 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 | `GET /v1/endpoints/{id}` | API key | Get an endpoint |
 | `PATCH /v1/endpoints/{id}` | API key | Change `url`, `description` or `event_types`; omitted fields keep their value |
 | `DELETE /v1/endpoints/{id}` | API key | Delete an endpoint and its delivery history |
+| `POST /v1/endpoints/{id}/enable` | API key | Re-enable a disabled endpoint, with a clean failure record |
 | `POST /v1/events` | API key | Publish an event (payload up to 256 KiB); optional `Idempotency-Key` |
 | `GET /v1/events` | API key | List events, newest first (paginated); optional `?event_type=` |
 | `GET /v1/events/{id}` | API key | Get an event |

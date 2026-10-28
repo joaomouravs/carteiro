@@ -29,7 +29,7 @@ shown at any point.
 
 ## M3: Operations
 - [ ] Replay, single and bulk (FR-18)
-- [ ] Automatic endpoint disabling and re-enabling (FR-08, 09)
+- [x] Automatic endpoint disabling and re-enabling (FR-08, 09)
 - [ ] Secret rotation with a grace period (FR-06)
 - [ ] Prometheus metrics; Grafana dashboard provisioned by compose (FR-20)
 - [ ] Retention job (FR-21)

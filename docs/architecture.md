@@ -138,6 +138,21 @@ retried for between about 7 and 14.5 hours before it is marked `dead`: long enou
 ride out an overnight outage. `Retry-After` on a `429` or `503` is a lower bound for the
 next wait (the receiver asked not to be called sooner), capped at `cap` (FR-14).
 
+### Endpoint health
+
+The transaction that records an attempt also updates the endpoint's failure streak:
+`consecutive_failures` and `failing_since`, both reset by any success. An endpoint is
+disabled (FR-08) when the streak reaches **both** 10 failures and 5 days: a busy
+endpoint fails ten times in a minute of downtime, and a quiet one can go days between
+two failures, so either condition alone would disable healthy endpoints. A `410 Gone`
+disables it at once, since the receiver said the URL is not coming back.
+
+Disabling kills the endpoint's pending deliveries (`pending → dead`), and claims skip
+disabled endpoints. After fixing the receiver, the producer enables the endpoint again
+(FR-09) and replays what died in the meantime (FR-18). Failures on Carteiro's side, such
+as a secret that no longer decrypts, are logged as attempts but do not count against the
+endpoint.
+
 ## Signing
 
 Deliveries follow the [Standard Webhooks](https://www.standardwebhooks.com/) spec

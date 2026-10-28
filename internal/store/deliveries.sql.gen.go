@@ -17,6 +17,9 @@ const claimDueDeliveries = `-- name: ClaimDueDeliveries :many
 WITH due AS (
     SELECT id FROM deliveries
     WHERE status = 'pending' AND next_attempt_at <= now()
+      -- Disabling an endpoint kills its pending deliveries, but one published
+      -- at the same moment can slip past; it waits here until re-enabled.
+      AND EXISTS (SELECT 1 FROM endpoints e WHERE e.id = deliveries.endpoint_id AND e.status = 'active')
     ORDER BY next_attempt_at
     LIMIT $2::bigint
     FOR UPDATE SKIP LOCKED
@@ -246,6 +249,23 @@ func (q *Queries) InsertAttempt(ctx context.Context, arg InsertAttemptParams) er
 		arg.Error,
 	)
 	return err
+}
+
+const killPendingDeliveries = `-- name: KillPendingDeliveries :execrows
+UPDATE deliveries
+SET status = 'dead', next_attempt_at = NULL, updated_at = now()
+WHERE endpoint_id = $1 AND status = 'pending'
+`
+
+// KillPendingDeliveries gives up on every pending delivery of an endpoint
+// that was just disabled. They stay replayable (FR-18) once the endpoint is
+// fixed and enabled again.
+func (q *Queries) KillPendingDeliveries(ctx context.Context, endpointID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, killPendingDeliveries, endpointID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const listAttempts = `-- name: ListAttempts :many

@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/endpoints/{endpointID}", producer(s.getEndpoint))
 	mux.Handle("PATCH /v1/endpoints/{endpointID}", producer(s.updateEndpoint))
 	mux.Handle("DELETE /v1/endpoints/{endpointID}", producer(s.deleteEndpoint))
+	mux.Handle("POST /v1/endpoints/{endpointID}/enable", producer(s.enableEndpoint))
 	mux.Handle("POST /v1/events", producer(s.createEvent))
 	mux.Handle("GET /v1/events", producer(s.listEvents))
 	mux.Handle("GET /v1/events/{eventID}", producer(s.getEvent))

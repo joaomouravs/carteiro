@@ -48,6 +48,9 @@ func testOptions() Options {
 		PollInterval: 10 * time.Millisecond,
 		Backoff:      DefaultBackoff,
 		NetPolicy:    netguard.Policy{AllowPrivateNetworks: true},
+		// The production defaults, so failing tests do not disable endpoints.
+		DisableAfter:       5 * 24 * time.Hour,
+		DisableMinFailures: 10,
 	}
 }
 
@@ -521,5 +524,169 @@ func TestReceiverThatRecovers(t *testing.T) {
 	}
 	if d := f.delivery(id); d.attemptCount != 3 {
 		t.Errorf("attempt_count = %d, want 3", d.attemptCount)
+	}
+}
+
+type endpointRow struct {
+	status       string
+	reason       *string
+	failures     int32
+	failingSince *time.Time
+}
+
+func (f *fixture) endpoint() endpointRow {
+	f.t.Helper()
+	var e endpointRow
+	err := testPool.QueryRow(context.Background(),
+		`SELECT status, disabled_reason, consecutive_failures, failing_since FROM endpoints WHERE id = $1`, f.endpointID,
+	).Scan(&e.status, &e.reason, &e.failures, &e.failingSince)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return e
+}
+
+// setStreak gives the endpoint a failure streak of failures, started ago.
+func (f *fixture) setStreak(failures int, ago time.Duration) {
+	f.t.Helper()
+	_, err := testPool.Exec(context.Background(), `
+		UPDATE endpoints SET consecutive_failures = $2, failing_since = now() - $3 * interval '1 millisecond'
+		WHERE id = $1`, f.endpointID, failures, ago.Milliseconds())
+	if err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestGoneDisablesEndpointAtOnce(t *testing.T) {
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusGone) })
+	f := newFixture(t, srv.URL, testOptions())
+	_, now := f.publish("invoice.paid", `{}`)
+	_, later := f.publish("invoice.paid", `{}`)
+	// later is a pending delivery that is not due yet: it is not claimed.
+	if _, err := testPool.Exec(context.Background(),
+		`UPDATE deliveries SET next_attempt_at = now() + interval '1 hour' WHERE id = $1`, later); err != nil {
+		t.Fatal(err)
+	}
+	f.runOnce()
+
+	if e := f.endpoint(); e.status != "disabled" || e.reason == nil || *e.reason != reasonGone {
+		t.Errorf("endpoint = %+v, want disabled as gone", e)
+	}
+	if d := f.delivery(now); d.status != statusDead {
+		t.Errorf("the delivery that got 410 = %+v, want dead, not retried", d)
+	}
+	if d := f.delivery(later); d.status != statusDead {
+		t.Errorf("the endpoint's other pending delivery = %+v, want dead", d)
+	}
+}
+
+// TestDisableNeedsBothConditions is FR-08: an endpoint is disabled only once
+// it has failed at least DisableMinFailures times in a row AND for at least
+// DisableAfter. Each case sets the streak before one more failure.
+func TestDisableNeedsBothConditions(t *testing.T) {
+	const day = 24 * time.Hour
+	tests := []struct {
+		name         string
+		failures     int
+		ago          time.Duration
+		wantDisabled bool
+	}{
+		{"10th failure after 5 days", 9, 5*day + time.Hour, true},
+		{"many failures, but only for an hour", 50, time.Hour, false},
+		{"failing for 10 days, but only the 2nd failure", 1, 10 * day, false},
+		{"9th failure after 5 days", 8, 6 * day, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
+			f := newFixture(t, srv.URL, testOptions())
+			_, id := f.publish("invoice.paid", `{}`)
+			f.setStreak(tt.failures, tt.ago)
+			f.runOnce()
+
+			e := f.endpoint()
+			if disabled := e.status == "disabled"; disabled != tt.wantDisabled {
+				t.Fatalf("endpoint = %+v, want disabled = %v", e, tt.wantDisabled)
+			}
+			if e.failures != int32(tt.failures+1) {
+				t.Errorf("consecutive_failures = %d, want %d", e.failures, tt.failures+1)
+			}
+			wantStatus := statusPending
+			if tt.wantDisabled {
+				wantStatus = statusDead
+				if e.reason == nil || *e.reason != reasonFailing {
+					t.Errorf("reason = %v, want %q", e.reason, reasonFailing)
+				}
+			}
+			if d := f.delivery(id); d.status != wantStatus {
+				t.Errorf("delivery = %+v, want %s", d, wantStatus)
+			}
+		})
+	}
+}
+
+func TestSuccessEndsTheFailureStreak(t *testing.T) {
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	f := newFixture(t, srv.URL, testOptions())
+	f.publish("invoice.paid", `{}`)
+	f.setStreak(7, 3*24*time.Hour)
+	f.runOnce()
+
+	if e := f.endpoint(); e.failures != 0 || e.failingSince != nil || e.status != "active" {
+		t.Errorf("endpoint = %+v, want a clean record", e)
+	}
+}
+
+func TestFirstFailureStartsTheStreak(t *testing.T) {
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) })
+	f := newFixture(t, srv.URL, testOptions())
+	f.publish("invoice.paid", `{}`)
+	f.runOnce()
+
+	e := f.endpoint()
+	if e.failures != 1 || e.failingSince == nil || time.Since(*e.failingSince) > time.Minute {
+		t.Errorf("endpoint = %+v, want 1 failure, failing since now", e)
+	}
+}
+
+// TestCarteiroErrorsDoNotCountAgainstTheEndpoint breaks the endpoint's
+// secret, as a changed CARTEIRO_ENCRYPTION_KEY would. The attempt fails and
+// is logged, but the receiver did nothing wrong.
+func TestCarteiroErrorsDoNotCountAgainstTheEndpoint(t *testing.T) {
+	var hit atomic.Bool
+	srv := receiver(t, func(http.ResponseWriter, *http.Request) { hit.Store(true) })
+	f := newFixture(t, srv.URL, testOptions())
+	_, id := f.publish("invoice.paid", `{}`)
+	if _, err := testPool.Exec(context.Background(),
+		`UPDATE endpoint_secrets SET secret_ciphertext = 'not a ciphertext' WHERE endpoint_id = $1`, f.endpointID); err != nil {
+		t.Fatal(err)
+	}
+	f.runOnce()
+
+	if hit.Load() {
+		t.Error("an unsigned request was sent")
+	}
+	if a := f.attempts(id); len(a) != 1 || a[0].err == nil || !strings.Contains(*a[0].err, "internal error") {
+		t.Errorf("attempts = %+v, want one internal error", a)
+	}
+	if e := f.endpoint(); e.failures != 0 || e.failingSince != nil {
+		t.Errorf("endpoint = %+v, want its record untouched", e)
+	}
+}
+
+func TestDisabledEndpointIsNotClaimed(t *testing.T) {
+	var hit atomic.Bool
+	srv := receiver(t, func(http.ResponseWriter, *http.Request) { hit.Store(true) })
+	f := newFixture(t, srv.URL, testOptions())
+	_, id := f.publish("invoice.paid", `{}`)
+	if _, err := testPool.Exec(context.Background(),
+		`UPDATE endpoints SET status = 'disabled', disabled_reason = 'failing' WHERE id = $1`, f.endpointID); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.runOnce(); n != 0 || hit.Load() {
+		t.Errorf("claimed %d deliveries of a disabled endpoint", n)
+	}
+	if d := f.delivery(id); d.status != statusPending {
+		t.Errorf("delivery = %+v, want it left pending, to run if the endpoint is enabled", d)
 	}
 }

@@ -97,11 +97,13 @@ func start(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 		return serve(ctx, stop, cfg, logger, pool, cipher)
 	}
 	w := delivery.New(logger, pool, cipher, delivery.Options{
-		Concurrency:  cfg.WorkerConcurrency,
-		Timeout:      cfg.DeliveryTimeout,
-		PollInterval: cfg.PollInterval,
-		Backoff:      delivery.Backoff{Base: cfg.RetryBase, Cap: cfg.RetryCap, MaxAttempts: cfg.MaxAttempts},
-		NetPolicy:    netguard.Policy{AllowPrivateNetworks: cfg.AllowPrivateNetworks},
+		Concurrency:        cfg.WorkerConcurrency,
+		Timeout:            cfg.DeliveryTimeout,
+		PollInterval:       cfg.PollInterval,
+		Backoff:            delivery.Backoff{Base: cfg.RetryBase, Cap: cfg.RetryCap, MaxAttempts: cfg.MaxAttempts},
+		NetPolicy:          netguard.Policy{AllowPrivateNetworks: cfg.AllowPrivateNetworks},
+		DisableAfter:       cfg.DisableAfter,
+		DisableMinFailures: cfg.DisableMinFailures,
 	})
 	if !r.api {
 		// As in serveUntilDone: once shutdown starts, a second Ctrl+C kills

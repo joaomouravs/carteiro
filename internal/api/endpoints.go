@@ -13,14 +13,20 @@ import (
 )
 
 type endpointResponse struct {
-	ID             uuid.UUID `json:"id"`
-	URL            string    `json:"url"`
-	Description    string    `json:"description"`
-	EventTypes     []string  `json:"event_types"`
-	Status         string    `json:"status"`
-	DisabledReason *string   `json:"disabled_reason"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID          uuid.UUID `json:"id"`
+	URL         string    `json:"url"`
+	Description string    `json:"description"`
+	EventTypes  []string  `json:"event_types"`
+	// Status is active or disabled; DisabledReason says why: "gone" (the
+	// receiver answered 410) or "failing" (FR-08).
+	Status         string  `json:"status"`
+	DisabledReason *string `json:"disabled_reason"`
+	// ConsecutiveFailures and FailingSince describe the current failure
+	// streak; FailingSince is null while the endpoint is healthy.
+	ConsecutiveFailures int32      `json:"consecutive_failures"`
+	FailingSince        *time.Time `json:"failing_since"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 	// Secret is set only in the response that creates the endpoint; the
 	// receiver needs it to verify signatures.
 	Secret string `json:"secret,omitempty"`
@@ -32,14 +38,16 @@ func toEndpointResponse(e store.Endpoint) endpointResponse {
 		types = []string{} // always a JSON array, never null
 	}
 	return endpointResponse{
-		ID:             e.ID,
-		URL:            e.URL,
-		Description:    e.Description,
-		EventTypes:     types,
-		Status:         e.Status,
-		DisabledReason: e.DisabledReason,
-		CreatedAt:      e.CreatedAt,
-		UpdatedAt:      e.UpdatedAt,
+		ID:                  e.ID,
+		URL:                 e.URL,
+		Description:         e.Description,
+		EventTypes:          types,
+		Status:              e.Status,
+		DisabledReason:      e.DisabledReason,
+		ConsecutiveFailures: e.ConsecutiveFailures,
+		FailingSince:        e.FailingSince,
+		CreatedAt:           e.CreatedAt,
+		UpdatedAt:           e.UpdatedAt,
 	}
 }
 
@@ -209,4 +217,24 @@ func (s *Server) deleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// enableEndpoint re-enables a disabled endpoint (FR-09). Deliveries killed
+// when it was disabled stay dead; replay them once the receiver is fixed.
+func (s *Server) enableEndpoint(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "endpointID")
+	if !ok {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	ep, err := s.q.EnableEndpoint(r.Context(), store.EnableEndpointParams{ID: id, ApplicationID: applicationIDFrom(r.Context())})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toEndpointResponse(ep))
 }

@@ -52,13 +52,18 @@ type Config struct {
 	RetryBase   time.Duration
 	RetryCap    time.Duration
 	MaxAttempts int
+	// DisableAfter and DisableMinFailures disable an endpoint that keeps
+	// failing (FR-08): both must be reached.
+	DisableAfter       time.Duration
+	DisableMinFailures int
 }
 
 // Bounds for the integer settings. They exist to catch typos, such as an
 // extra zero, before they reach production.
 const (
-	maxWorkerConcurrency = 1000
-	maxMaxAttempts       = 100
+	maxWorkerConcurrency  = 1000
+	maxMaxAttempts        = 100
+	maxDisableMinFailures = 1000
 )
 
 // minAdminTokenLen rejects tokens short enough to guess. 32 characters of a
@@ -70,15 +75,17 @@ const minAdminTokenLen = 32
 // so a misconfigured deploy is fixed in one round instead of one per variable.
 func Load(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
-		HTTPAddr:          ":8080",
-		LogLevel:          slog.LevelInfo,
-		ShutdownTimeout:   15 * time.Second,
-		WorkerConcurrency: 10,
-		DeliveryTimeout:   15 * time.Second,
-		PollInterval:      time.Second,
-		RetryBase:         30 * time.Second,
-		RetryCap:          6 * time.Hour,
-		MaxAttempts:       12,
+		HTTPAddr:           ":8080",
+		LogLevel:           slog.LevelInfo,
+		ShutdownTimeout:    15 * time.Second,
+		WorkerConcurrency:  10,
+		DeliveryTimeout:    15 * time.Second,
+		PollInterval:       time.Second,
+		RetryBase:          30 * time.Second,
+		RetryCap:           6 * time.Hour,
+		MaxAttempts:        12,
+		DisableAfter:       5 * 24 * time.Hour,
+		DisableMinFailures: 10,
 	}
 	var errs []error
 
@@ -155,6 +162,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	parseDuration("CARTEIRO_POLL_INTERVAL", &cfg.PollInterval)
 	parseDuration("CARTEIRO_RETRY_BASE", &cfg.RetryBase)
 	parseDuration("CARTEIRO_RETRY_CAP", &cfg.RetryCap)
+	parseDuration("CARTEIRO_DISABLE_AFTER", &cfg.DisableAfter)
 
 	parseInt := func(name string, dst *int, maxValue int) {
 		v, ok := lookup(name)
@@ -170,6 +178,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	}
 	parseInt("CARTEIRO_WORKER_CONCURRENCY", &cfg.WorkerConcurrency, maxWorkerConcurrency)
 	parseInt("CARTEIRO_MAX_ATTEMPTS", &cfg.MaxAttempts, maxMaxAttempts)
+	parseInt("CARTEIRO_DISABLE_MIN_FAILURES", &cfg.DisableMinFailures, maxDisableMinFailures)
 
 	if cfg.RetryCap < cfg.RetryBase {
 		errs = append(errs, fmt.Errorf("CARTEIRO_RETRY_CAP (%s) must not be less than CARTEIRO_RETRY_BASE (%s)", cfg.RetryCap, cfg.RetryBase))

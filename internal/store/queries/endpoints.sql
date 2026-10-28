@@ -36,3 +36,37 @@ RETURNING *;
 -- name: DeleteEndpoint :execrows
 DELETE FROM endpoints
 WHERE id = $1 AND application_id = $2;
+
+-- EnableEndpoint re-enables an endpoint (FR-09) with a clean failure record,
+-- so the next failure does not disable it again at once. Enabling an active
+-- endpoint changes nothing but its failure counters.
+-- name: EnableEndpoint :one
+UPDATE endpoints
+SET status               = 'active',
+    disabled_reason      = NULL,
+    consecutive_failures = 0,
+    failing_since        = NULL,
+    updated_at           = now()
+WHERE id = $1 AND application_id = $2
+RETURNING *;
+
+-- Endpoint health (FR-08), written by the worker in the same transaction as
+-- each attempt.
+
+-- RecordEndpointResult updates the failure streak after an attempt and
+-- reports whether it has lasted at least failing_for_ms. updated_at is left
+-- alone: it tracks changes to the endpoint's configuration, not its health.
+-- name: RecordEndpointResult :one
+UPDATE endpoints
+SET consecutive_failures = CASE WHEN sqlc.arg('success')::boolean THEN 0 ELSE consecutive_failures + 1 END,
+    failing_since        = CASE WHEN sqlc.arg('success')::boolean THEN NULL ELSE COALESCE(failing_since, now()) END
+WHERE id = sqlc.arg('id')
+RETURNING status,
+          consecutive_failures,
+          (failing_since IS NOT NULL
+           AND failing_since <= now() - sqlc.arg('failing_for_ms')::bigint * interval '1 millisecond')::boolean AS failing_long_enough;
+
+-- name: DisableEndpoint :execrows
+UPDATE endpoints
+SET status = 'disabled', disabled_reason = sqlc.arg('reason'), updated_at = now()
+WHERE id = sqlc.arg('id') AND status = 'active';
