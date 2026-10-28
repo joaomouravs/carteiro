@@ -57,7 +57,7 @@ jobs:
             echo "- Memory: $(free -h | awk '/^Mem:/ {print $2}')"
             echo "- Commit: \`$(git rev-parse --short HEAD)\`, $DELIVERIES deliveries per run, $REPS runs each"
             echo
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY" # in the log too: summaries are not in the API
 
       - name: Throughput of the baseline commit
         if: env.BASELINE_REF != ''

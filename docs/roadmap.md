@@ -36,6 +36,6 @@ shown at any point.
 
 ## M4: Proof
 - [x] Concurrency and fault-injection tests (`loadtest/crash.sh` kills a worker with SIGKILL mid-run)
-- [ ] k6 load tests, with results and the identified bottleneck published ([performance](performance.md)); method, tooling and the first bottleneck (a lock convoy) done, numbers from the CI workflow pending
+- [x] k6 load tests, with results and the identified bottleneck published ([performance](performance.md))
 - [x] Dashboard UI: a separate Next.js app on the public API ([ADR 0007](adr/0007-dashboard-as-a-separate-nextjs-app.md))
-- [ ] Final README, demo GIF, architecture diagrams
+- [x] Final README, demo GIF, architecture diagrams

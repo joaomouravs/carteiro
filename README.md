@@ -62,6 +62,17 @@ any number of them, against the same database. More in [architecture](docs/archi
 - **No transaction held across network calls.** Workers claim deliveries with short
   leases, so slow receivers cannot exhaust the database.
 
+## Performance
+
+Measured on a GitHub-hosted runner with the [Load test workflow](.github/workflows/loadtest.yml),
+which anyone can run again ([method, all numbers, and the bottleneck](docs/performance.md)):
+
+| | Result | Target |
+|---|---|---|
+| Delivery throughput, 4 workers | **1,549 deliveries/s** (was 938 before the lock convoy fix) | 500/s (NFR-PERF-02) |
+| Ingest latency at 200 events/s | **p99 3.54 ms**, no errors in 12,001 requests | p99 < 50 ms (NFR-PERF-01) |
+| Worker killed with `SIGKILL` mid-run | **every delivery arrives**; the ones it held come back after their lease (measured on the development laptop; the workflow now runs it too) | NFR-REL-01 |
+
 ## Running locally
 
 Requirements: Docker. For development, also Go 1.27 and
