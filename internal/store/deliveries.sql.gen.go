@@ -111,6 +111,38 @@ func (q *Queries) CompleteDelivery(ctx context.Context, arg CompleteDeliveryPara
 	return result.RowsAffected(), nil
 }
 
+const getDelivery = `-- name: GetDelivery :one
+
+SELECT d.id, d.event_id, d.endpoint_id, d.status, d.attempt_count, d.next_attempt_at, d.lease_expires_at, d.created_at, d.updated_at FROM deliveries d
+JOIN events e ON e.id = d.event_id
+WHERE d.id = $1 AND e.application_id = $2
+`
+
+type GetDeliveryParams struct {
+	ID            uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+// Queries for the API (FR-17). Deliveries have no application_id of their
+// own; they belong to an application through their event, so every lookup
+// joins events to keep applications apart (FR-03).
+func (q *Queries) GetDelivery(ctx context.Context, arg GetDeliveryParams) (Delivery, error) {
+	row := q.db.QueryRow(ctx, getDelivery, arg.ID, arg.ApplicationID)
+	var i Delivery
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.EndpointID,
+		&i.Status,
+		&i.AttemptCount,
+		&i.NextAttemptAt,
+		&i.LeaseExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getDeliveryJobs = `-- name: GetDeliveryJobs :many
 SELECT d.id,
        d.event_id,
@@ -214,6 +246,97 @@ func (q *Queries) InsertAttempt(ctx context.Context, arg InsertAttemptParams) er
 		arg.Error,
 	)
 	return err
+}
+
+const listAttempts = `-- name: ListAttempts :many
+SELECT id, delivery_id, attempt_number, started_at, duration_ms, response_status, response_body, error FROM attempts
+WHERE delivery_id = $1
+  AND ($2::uuid IS NULL OR id < $2::uuid)
+ORDER BY id DESC
+LIMIT $3
+`
+
+type ListAttemptsParams struct {
+	DeliveryID uuid.UUID
+	Before     *uuid.UUID
+	Limit      int32
+}
+
+// ListAttempts lists the attempts of one delivery, newest first; the caller
+// has already checked the delivery belongs to its application.
+func (q *Queries) ListAttempts(ctx context.Context, arg ListAttemptsParams) ([]Attempt, error) {
+	rows, err := q.db.Query(ctx, listAttempts, arg.DeliveryID, arg.Before, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Attempt
+	for rows.Next() {
+		var i Attempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeliveryID,
+			&i.AttemptNumber,
+			&i.StartedAt,
+			&i.DurationMs,
+			&i.ResponseStatus,
+			&i.ResponseBody,
+			&i.Error,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventDeliveries = `-- name: ListEventDeliveries :many
+SELECT id, event_id, endpoint_id, status, attempt_count, next_attempt_at, lease_expires_at, created_at, updated_at FROM deliveries
+WHERE event_id = $1
+  AND ($2::uuid IS NULL OR id < $2::uuid)
+ORDER BY id DESC
+LIMIT $3
+`
+
+type ListEventDeliveriesParams struct {
+	EventID uuid.UUID
+	Before  *uuid.UUID
+	Limit   int32
+}
+
+// ListEventDeliveries lists the deliveries of one event, which the caller has
+// already checked belongs to its application.
+func (q *Queries) ListEventDeliveries(ctx context.Context, arg ListEventDeliveriesParams) ([]Delivery, error) {
+	rows, err := q.db.Query(ctx, listEventDeliveries, arg.EventID, arg.Before, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Delivery
+	for rows.Next() {
+		var i Delivery
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.EndpointID,
+			&i.Status,
+			&i.AttemptCount,
+			&i.NextAttemptAt,
+			&i.LeaseExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const reclaimExpiredDeliveries = `-- name: ReclaimExpiredDeliveries :many

@@ -39,3 +39,17 @@ FROM endpoints e
 WHERE e.application_id = sqlc.arg('application_id')
   AND e.status = 'active'
   AND (cardinality(e.event_types) = 0 OR sqlc.arg('event_type')::text = ANY (e.event_types));
+
+-- name: GetEvent :one
+SELECT * FROM events
+WHERE id = $1 AND application_id = $2;
+
+-- ListEvents pages through an application's events, newest first, optionally
+-- of one type. It is served by the (application_id, id) index.
+-- name: ListEvents :many
+SELECT * FROM events
+WHERE application_id = sqlc.arg('application_id')
+  AND (sqlc.narg('event_type')::text IS NULL OR event_type = sqlc.narg('event_type')::text)
+  AND (sqlc.narg('before')::uuid IS NULL OR id < sqlc.narg('before')::uuid)
+ORDER BY id DESC
+LIMIT sqlc.arg('limit');

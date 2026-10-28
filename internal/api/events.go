@@ -174,3 +174,82 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, toEventResponse(event))
 	}
 }
+
+func (s *Server) eventFromPath(w http.ResponseWriter, r *http.Request) (store.Event, bool) {
+	id, ok := pathID(r, "eventID")
+	if !ok {
+		writeNotFound(w, r, "event")
+		return store.Event{}, false
+	}
+	e, err := s.q.GetEvent(r.Context(), store.GetEventParams{ID: id, ApplicationID: applicationIDFrom(r.Context())})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeNotFound(w, r, "event")
+		return store.Event{}, false
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return store.Event{}, false
+	}
+	return e, true
+}
+
+func (s *Server) getEvent(w http.ResponseWriter, r *http.Request) {
+	if e, ok := s.eventFromPath(w, r); ok {
+		writeJSON(w, http.StatusOK, toEventResponse(e))
+	}
+}
+
+// listEvents lists the application's events, newest first, optionally only
+// those of ?event_type=.
+func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
+	page, errs := parsePage(r)
+	var eventType *string
+	if v := r.URL.Query().Get("event_type"); v != "" {
+		if validEventType(v) {
+			eventType = &v
+		} else {
+			errs = append(errs, fieldError{"event_type", "is not a valid event type"})
+		}
+	}
+	if errs != nil {
+		writeValidation(w, r, errs)
+		return
+	}
+	rows, err := s.q.ListEvents(r.Context(), store.ListEventsParams{
+		ApplicationID: applicationIDFrom(r.Context()),
+		EventType:     eventType,
+		Before:        page.before,
+		Limit:         int32(page.limit + 1), //nolint:gosec // limit is at most maxPageSize, validated by parsePage
+	})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, paginate(rows, page.limit,
+		func(e store.Event) uuid.UUID { return e.ID }, toEventResponse))
+}
+
+// listEventDeliveries lists an event's deliveries, one per endpoint it was
+// fanned out to (FR-17).
+func (s *Server) listEventDeliveries(w http.ResponseWriter, r *http.Request) {
+	page, errs := parsePage(r)
+	if errs != nil {
+		writeValidation(w, r, errs)
+		return
+	}
+	e, ok := s.eventFromPath(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.q.ListEventDeliveries(r.Context(), store.ListEventDeliveriesParams{
+		EventID: e.ID,
+		Before:  page.before,
+		Limit:   int32(page.limit + 1), //nolint:gosec // limit is at most maxPageSize, validated by parsePage
+	})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, paginate(rows, page.limit,
+		func(d store.Delivery) uuid.UUID { return d.ID }, toDeliveryResponse))
+}

@@ -104,3 +104,30 @@ VALUES (
     sqlc.narg('response_body'),
     sqlc.narg('error')
 );
+
+-- Queries for the API (FR-17). Deliveries have no application_id of their
+-- own; they belong to an application through their event, so every lookup
+-- joins events to keep applications apart (FR-03).
+
+-- name: GetDelivery :one
+SELECT d.* FROM deliveries d
+JOIN events e ON e.id = d.event_id
+WHERE d.id = sqlc.arg('id') AND e.application_id = sqlc.arg('application_id');
+
+-- ListEventDeliveries lists the deliveries of one event, which the caller has
+-- already checked belongs to its application.
+-- name: ListEventDeliveries :many
+SELECT * FROM deliveries
+WHERE event_id = sqlc.arg('event_id')
+  AND (sqlc.narg('before')::uuid IS NULL OR id < sqlc.narg('before')::uuid)
+ORDER BY id DESC
+LIMIT sqlc.arg('limit');
+
+-- ListAttempts lists the attempts of one delivery, newest first; the caller
+-- has already checked the delivery belongs to its application.
+-- name: ListAttempts :many
+SELECT * FROM attempts
+WHERE delivery_id = sqlc.arg('delivery_id')
+  AND (sqlc.narg('before')::uuid IS NULL OR id < sqlc.narg('before')::uuid)
+ORDER BY id DESC
+LIMIT sqlc.arg('limit');

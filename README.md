@@ -3,7 +3,8 @@
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
 **Status:** M2 (delivery) in progress: events are signed, delivered, retried with backoff and
-recorded. Querying attempts and the example receiver are next. See the [roadmap](docs/roadmap.md).
+recorded, and every attempt can be queried through the API. The example receiver is next. See
+the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -106,6 +107,16 @@ and `Idempotent-Replayed: true`; reusing the key with a different payload return
 Payloads are compared as JSON values, so key order and whitespace do not matter
 ([ADR 0006](docs/adr/0006-idempotency-compares-normalized-json.md)).
 
+To see what happened to an event, follow it down to each HTTP attempt:
+
+```sh
+curl -s localhost:8080/v1/events/<event id>/deliveries -H "Authorization: Bearer $KEY"
+# {"data":[{"id":"...","endpoint_id":"...","status":"pending","attempt_count":1,"next_attempt_at":"..."}],"next_cursor":null}
+
+curl -s localhost:8080/v1/deliveries/<delivery id>/attempts -H "Authorization: Bearer $KEY"
+# {"data":[{"attempt_number":1,"response_status":503,"response_body":"try later","error":null,"duration_ms":120,...}],...}
+```
+
 The receiver uses the `whsec_` secret to verify signatures. Carteiro stores it encrypted
 with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 
@@ -124,6 +135,11 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 | `PATCH /v1/endpoints/{id}` | API key | Change `url`, `description` or `event_types`; omitted fields keep their value |
 | `DELETE /v1/endpoints/{id}` | API key | Delete an endpoint and its delivery history |
 | `POST /v1/events` | API key | Publish an event (payload up to 256 KiB); optional `Idempotency-Key` |
+| `GET /v1/events` | API key | List events, newest first (paginated); optional `?event_type=` |
+| `GET /v1/events/{id}` | API key | Get an event |
+| `GET /v1/events/{id}/deliveries` | API key | The event's deliveries, one per endpoint it was sent to (paginated) |
+| `GET /v1/deliveries/{id}` | API key | Get a delivery: `status` (`pending`, `in_flight`, `succeeded`, `dead`), `attempt_count`, `next_attempt_at` |
+| `GET /v1/deliveries/{id}/attempts` | API key | Every HTTP attempt, newest first: status, first 4 KiB of the response body, error, duration (paginated) |
 
 ## Documentation
 

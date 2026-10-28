@@ -24,7 +24,7 @@ shown at any point.
 - [x] SSRF-safe HTTP client (NFR-SEC-03, 04), and the blocked-IP check of FR-07
 - [x] Worker: lease-based claiming, fencing, lease recovery (ADR 0003)
 - [x] Backoff with jitter, `Retry-After`, `dead` state (FR-14, 15)
-- [ ] Attempts log and query endpoints (FR-16, 17)
+- [x] Attempts log and query endpoints (FR-16, 17)
 - [ ] Example receiver using the official Standard Webhooks library
 
 ## M3: Operations

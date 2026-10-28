@@ -37,6 +37,31 @@ func (q *Queries) CreateDeliveries(ctx context.Context, arg CreateDeliveriesPara
 	return result.RowsAffected(), nil
 }
 
+const getEvent = `-- name: GetEvent :one
+SELECT id, application_id, event_type, payload, idempotency_key, payload_hash, created_at FROM events
+WHERE id = $1 AND application_id = $2
+`
+
+type GetEventParams struct {
+	ID            uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+func (q *Queries) GetEvent(ctx context.Context, arg GetEventParams) (Event, error) {
+	row := q.db.QueryRow(ctx, getEvent, arg.ID, arg.ApplicationID)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.EventType,
+		&i.Payload,
+		&i.IdempotencyKey,
+		&i.PayloadHash,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getEventByIdempotencyKey = `-- name: GetEventByIdempotencyKey :one
 SELECT events.id, events.application_id, events.event_type, events.payload, events.idempotency_key, events.payload_hash, events.created_at,
        (events.payload_hash = sha256(convert_to($1::jsonb::text, 'UTF8')))::boolean AS same_payload
@@ -122,4 +147,55 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listEvents = `-- name: ListEvents :many
+SELECT id, application_id, event_type, payload, idempotency_key, payload_hash, created_at FROM events
+WHERE application_id = $1
+  AND ($2::text IS NULL OR event_type = $2::text)
+  AND ($3::uuid IS NULL OR id < $3::uuid)
+ORDER BY id DESC
+LIMIT $4
+`
+
+type ListEventsParams struct {
+	ApplicationID uuid.UUID
+	EventType     *string
+	Before        *uuid.UUID
+	Limit         int32
+}
+
+// ListEvents pages through an application's events, newest first, optionally
+// of one type. It is served by the (application_id, id) index.
+func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error) {
+	rows, err := q.db.Query(ctx, listEvents,
+		arg.ApplicationID,
+		arg.EventType,
+		arg.Before,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.ApplicationID,
+			&i.EventType,
+			&i.Payload,
+			&i.IdempotencyKey,
+			&i.PayloadHash,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
