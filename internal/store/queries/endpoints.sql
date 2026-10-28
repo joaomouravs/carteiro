@@ -53,13 +53,31 @@ RETURNING *;
 -- Endpoint health (FR-08), written by the worker in the same transaction as
 -- each attempt.
 
--- RecordEndpointResult updates the failure streak after an attempt and
--- reports whether it has lasted at least failing_for_ms. updated_at is left
--- alone: it tracks changes to the endpoint's configuration, not its health.
--- name: RecordEndpointResult :one
+-- Health is written in two queries, not one, for throughput. Every attempt
+-- to an endpoint would otherwise update its row, and each transaction holds
+-- that row lock until its commit is flushed to disk. Deliveries to one
+-- endpoint then queue on the row, one fsync at a time, and under load the
+-- queue sustains itself: the load test measured either about 450 or about
+-- 1,400 deliveries per second for the same setup, depending on whether such
+-- a convoy formed. Since most attempts are successes to a healthy endpoint,
+-- which change nothing, ClearEndpointFailures skips those rows entirely.
+-- updated_at is left alone in both: it tracks changes to the endpoint's
+-- configuration, not its health.
+
+-- ClearEndpointFailures ends a failure streak after a success. The WHERE
+-- clause matches only an endpoint that has one, so a success to a healthy
+-- endpoint neither writes nor locks its row.
+-- name: ClearEndpointFailures :exec
 UPDATE endpoints
-SET consecutive_failures = CASE WHEN sqlc.arg('success')::boolean THEN 0 ELSE consecutive_failures + 1 END,
-    failing_since        = CASE WHEN sqlc.arg('success')::boolean THEN NULL ELSE COALESCE(failing_since, now()) END
+SET consecutive_failures = 0, failing_since = NULL
+WHERE id = $1 AND (consecutive_failures > 0 OR failing_since IS NOT NULL);
+
+-- RecordEndpointFailure extends the failure streak after a failed attempt and
+-- reports whether it has lasted at least failing_for_ms.
+-- name: RecordEndpointFailure :one
+UPDATE endpoints
+SET consecutive_failures = consecutive_failures + 1,
+    failing_since        = COALESCE(failing_since, now())
 WHERE id = sqlc.arg('id')
 RETURNING status,
           consecutive_failures,

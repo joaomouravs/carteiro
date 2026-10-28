@@ -751,3 +751,30 @@ func TestAttemptsAreReportedToMetrics(t *testing.T) {
 		t.Errorf("outcomes = %v, want %v", rec.outcomes, want)
 	}
 }
+
+// TestSuccessDoesNotWriteAHealthyEndpoint checks the throughput fix in
+// ClearEndpointFailures: a success to an endpoint with no failure streak must
+// leave its row alone. xmin, the id of the transaction that last wrote a row,
+// changes on every update, so an unchanged xmin proves no write happened.
+func TestSuccessDoesNotWriteAHealthyEndpoint(t *testing.T) {
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	f := newFixture(t, srv.URL, testOptions())
+	xmin := func() string {
+		var x string
+		if err := testPool.QueryRow(context.Background(),
+			`SELECT xmin::text FROM endpoints WHERE id = $1`, f.endpointID).Scan(&x); err != nil {
+			t.Fatal(err)
+		}
+		return x
+	}
+	before := xmin()
+	for range 3 {
+		f.publish("invoice.paid", `{}`)
+	}
+	if n := f.runOnce(); n != 3 {
+		t.Fatalf("delivered %d, want 3", n)
+	}
+	if after := xmin(); after != before {
+		t.Errorf("endpoint row rewritten (xmin %s -> %s) by successes that change nothing", before, after)
+	}
+}

@@ -259,12 +259,10 @@ type result struct {
 	internal bool
 }
 
-// disableReason decides whether an attempt's outcome disables the endpoint,
-// given its failure streak after the attempt.
-func (w *Worker) disableReason(res result, success bool, h store.RecordEndpointResultRow) string {
+// disableReason decides whether a failed attempt disables the endpoint, given
+// its failure streak after the attempt.
+func (w *Worker) disableReason(res result, h store.RecordEndpointFailureRow) string {
 	switch {
-	case success:
-		return ""
 	case res.status == http.StatusGone:
 		return reasonGone
 	case int(h.ConsecutiveFailures) >= w.opts.DisableMinFailures && h.FailingLongEnough:
@@ -316,21 +314,30 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 		if err := q.InsertAttempt(ctx, attempt); err != nil {
 			return fmt.Errorf("insert attempt: %w", err)
 		}
-		// Every attempt to the same endpoint updates its row, so concurrent
-		// deliveries to one endpoint take turns on that row lock for the
-		// few milliseconds this transaction lasts. It cannot deadlock: these
-		// transactions lock their own delivery, then the endpoint. Killing
-		// pending deliveries locks more deliveries after the endpoint, but
-		// only pending ones, and the only transactions that lock a pending
-		// delivery are claims, which read endpoints without locking them.
-		if !res.internal {
-			h, err := q.RecordEndpointResult(ctx, store.RecordEndpointResultParams{
-				ID: j.EndpointID, Success: success, FailingForMs: w.opts.DisableAfter.Milliseconds(),
+		// Failures, and the first success after them, update the endpoint's
+		// row; a success to a healthy endpoint does not touch it (see the
+		// endpoints.sql queries for why that matters under load). Updates
+		// cannot deadlock: these transactions lock their own delivery, then
+		// the endpoint. Killing pending deliveries locks more deliveries
+		// after the endpoint, but only pending ones, and the only
+		// transactions that lock a pending delivery are claims, which read
+		// endpoints without locking them.
+		switch {
+		case res.internal:
+			// Carteiro's fault, not the receiver's: the endpoint's record
+			// stays as it is.
+		case success:
+			if err := q.ClearEndpointFailures(ctx, j.EndpointID); err != nil {
+				return fmt.Errorf("clear endpoint failures: %w", err)
+			}
+		default:
+			h, err := q.RecordEndpointFailure(ctx, store.RecordEndpointFailureParams{
+				ID: j.EndpointID, FailingForMs: w.opts.DisableAfter.Milliseconds(),
 			})
 			if err != nil {
-				return fmt.Errorf("record endpoint result: %w", err)
+				return fmt.Errorf("record endpoint failure: %w", err)
 			}
-			if reason := w.disableReason(res, success, h); reason != "" && h.Status == "active" {
+			if reason := w.disableReason(res, h); reason != "" && h.Status == "active" {
 				if _, err := q.DisableEndpoint(ctx, store.DisableEndpointParams{ID: j.EndpointID, Reason: &reason}); err != nil {
 					return fmt.Errorf("disable endpoint: %w", err)
 				}

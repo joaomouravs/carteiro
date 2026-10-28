@@ -11,6 +11,34 @@ import (
 	"github.com/google/uuid"
 )
 
+const clearEndpointFailures = `-- name: ClearEndpointFailures :exec
+
+
+UPDATE endpoints
+SET consecutive_failures = 0, failing_since = NULL
+WHERE id = $1 AND (consecutive_failures > 0 OR failing_since IS NOT NULL)
+`
+
+// Endpoint health (FR-08), written by the worker in the same transaction as
+// each attempt.
+// Health is written in two queries, not one, for throughput. Every attempt
+// to an endpoint would otherwise update its row, and each transaction holds
+// that row lock until its commit is flushed to disk. Deliveries to one
+// endpoint then queue on the row, one fsync at a time, and under load the
+// queue sustains itself: the load test measured either about 450 or about
+// 1,400 deliveries per second for the same setup, depending on whether such
+// a convoy formed. Since most attempts are successes to a healthy endpoint,
+// which change nothing, ClearEndpointFailures skips those rows entirely.
+// updated_at is left alone in both: it tracks changes to the endpoint's
+// configuration, not its health.
+// ClearEndpointFailures ends a failure streak after a success. The WHERE
+// clause matches only an endpoint that has one, so a success to a healthy
+// endpoint neither writes nor locks its row.
+func (q *Queries) ClearEndpointFailures(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearEndpointFailures, id)
+	return err
+}
+
 const createEndpoint = `-- name: CreateEndpoint :one
 
 INSERT INTO endpoints (application_id, url, description, event_types)
@@ -253,38 +281,33 @@ func (q *Queries) LockEndpoint(ctx context.Context, arg LockEndpointParams) (End
 	return i, err
 }
 
-const recordEndpointResult = `-- name: RecordEndpointResult :one
-
+const recordEndpointFailure = `-- name: RecordEndpointFailure :one
 UPDATE endpoints
-SET consecutive_failures = CASE WHEN $1::boolean THEN 0 ELSE consecutive_failures + 1 END,
-    failing_since        = CASE WHEN $1::boolean THEN NULL ELSE COALESCE(failing_since, now()) END
-WHERE id = $2
+SET consecutive_failures = consecutive_failures + 1,
+    failing_since        = COALESCE(failing_since, now())
+WHERE id = $1
 RETURNING status,
           consecutive_failures,
           (failing_since IS NOT NULL
-           AND failing_since <= now() - $3::bigint * interval '1 millisecond')::boolean AS failing_long_enough
+           AND failing_since <= now() - $2::bigint * interval '1 millisecond')::boolean AS failing_long_enough
 `
 
-type RecordEndpointResultParams struct {
-	Success      bool
+type RecordEndpointFailureParams struct {
 	ID           uuid.UUID
 	FailingForMs int64
 }
 
-type RecordEndpointResultRow struct {
+type RecordEndpointFailureRow struct {
 	Status              string
 	ConsecutiveFailures int32
 	FailingLongEnough   bool
 }
 
-// Endpoint health (FR-08), written by the worker in the same transaction as
-// each attempt.
-// RecordEndpointResult updates the failure streak after an attempt and
-// reports whether it has lasted at least failing_for_ms. updated_at is left
-// alone: it tracks changes to the endpoint's configuration, not its health.
-func (q *Queries) RecordEndpointResult(ctx context.Context, arg RecordEndpointResultParams) (RecordEndpointResultRow, error) {
-	row := q.db.QueryRow(ctx, recordEndpointResult, arg.Success, arg.ID, arg.FailingForMs)
-	var i RecordEndpointResultRow
+// RecordEndpointFailure extends the failure streak after a failed attempt and
+// reports whether it has lasted at least failing_for_ms.
+func (q *Queries) RecordEndpointFailure(ctx context.Context, arg RecordEndpointFailureParams) (RecordEndpointFailureRow, error) {
+	row := q.db.QueryRow(ctx, recordEndpointFailure, arg.ID, arg.FailingForMs)
+	var i RecordEndpointFailureRow
 	err := row.Scan(&i.Status, &i.ConsecutiveFailures, &i.FailingLongEnough)
 	return i, err
 }
