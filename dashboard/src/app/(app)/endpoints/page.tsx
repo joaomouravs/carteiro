@@ -24,7 +24,7 @@ export default async function EndpointsPage({ searchParams }: { searchParams: Pr
               <tr>
                 <th className={t.th}>URL</th>
                 <th className={t.th}>Status</th>
-                <th className={t.th}>Event types</th>
+                <th className={`${t.th} hidden md:table-cell`}>Event types</th>
                 <th className={`${t.th} text-right`}>Failing</th>
               </tr>
             </thead>
@@ -40,7 +40,7 @@ export default async function EndpointsPage({ searchParams }: { searchParams: Pr
                   <td className={t.td}>
                     <EndpointBadge status={e.status} reason={e.disabled_reason} />
                   </td>
-                  <td className={t.td}>{e.event_types.length === 0 ? <span className="text-zinc-500">all</span> : <Mono>{e.event_types.join(", ")}</Mono>}</td>
+                  <td className={`${t.td} hidden md:table-cell`}>{e.event_types.length === 0 ? <span className="text-zinc-500">all</span> : <Mono>{e.event_types.join(", ")}</Mono>}</td>
                   <td className={`${t.td} text-right whitespace-nowrap text-zinc-500`}>
                     {e.failing_since ? (
                       <span className="text-amber-700 dark:text-amber-400">

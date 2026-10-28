@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { enableEndpoint, replayEndpoint, rotateSecret } from "@/app/(app)/actions.ts";
 import { ActionButton, ReplayEndpointForm, RotateSecretForm } from "@/components/actions.tsx";
 import { EndpointBadge } from "@/components/badges.tsx";
 import { Card, Mono, PageHeader, Time } from "@/components/ui.tsx";
 import { orFail, requireSession } from "@/lib/session.ts";
+
+export const metadata: Metadata = { title: "Endpoint" };
 
 export default async function EndpointPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

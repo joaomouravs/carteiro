@@ -19,12 +19,13 @@ export function Card({ title, children, actions }: { title?: ReactNode; children
   return (
     <section className="rounded-xl border border-zinc-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
       {title && (
-        <header className="flex items-center justify-between gap-4 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <h2 className="text-sm font-semibold">{title}</h2>
           {actions}
         </header>
       )}
-      {children}
+      {/* Wide tables scroll inside the card instead of widening the page. */}
+      <div className="overflow-x-auto">{children}</div>
     </section>
   );
 }

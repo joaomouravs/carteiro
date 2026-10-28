@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { DeliveryBadge } from "@/components/badges.tsx";
 import { Card, Empty, Mono, PageHeader, Pager, Time, tableStyles as t } from "@/components/ui.tsx";
 import { orFail, requireSession } from "@/lib/session.ts";
+
+export const metadata: Metadata = { title: "Event" };
 
 export default async function EventPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cursor?: string }> }) {
   const [{ id }, { cursor }] = await Promise.all([params, searchParams]);

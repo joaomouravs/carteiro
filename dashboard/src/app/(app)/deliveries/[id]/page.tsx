@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { replayDelivery } from "@/app/(app)/actions.ts";
@@ -6,6 +7,8 @@ import { DeliveryBadge, EndpointBadge, HTTPStatus } from "@/components/badges.ts
 import { Card, Empty, Mono, PageHeader, Pager, Time } from "@/components/ui.tsx";
 import { duration } from "@/lib/format.ts";
 import { orFail, requireSession } from "@/lib/session.ts";
+
+export const metadata: Metadata = { title: "Delivery" };
 
 export default async function DeliveryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cursor?: string }> }) {
   const [{ id }, { cursor }] = await Promise.all([params, searchParams]);

@@ -34,9 +34,21 @@ export function ActionButton({
   const [state, run, pending] = useActionState<ActionState>(() => action(), {});
   return (
     <form action={run} className="flex flex-col items-end gap-2">
-      <button type="submit" disabled={disabled || pending} title={disabled ? disabledReason : undefined} className={buttonStyles[variant]}>
+      <button
+        type="submit"
+        disabled={disabled || pending}
+        aria-describedby={disabled && disabledReason ? "action-disabled-reason" : undefined}
+        className={buttonStyles[variant]}
+      >
         {pending ? pendingLabel : label}
       </button>
+      {/* Visible text, not a title tooltip: tooltips do not show on touch
+          screens, and screen readers announce them unreliably. */}
+      {disabled && disabledReason && (
+        <p id="action-disabled-reason" className="max-w-56 text-right text-xs text-zinc-500">
+          {disabledReason}
+        </p>
+      )}
       <Feedback state={state} />
     </form>
   );
