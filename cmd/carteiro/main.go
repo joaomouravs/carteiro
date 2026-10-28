@@ -20,6 +20,7 @@ import (
 
 	"github.com/joaomouravs/carteiro/internal/api"
 	"github.com/joaomouravs/carteiro/internal/config"
+	"github.com/joaomouravs/carteiro/internal/crypto"
 	"github.com/joaomouravs/carteiro/internal/store"
 )
 
@@ -61,14 +62,25 @@ func run(args []string) error {
 }
 
 func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logger *slog.Logger) error {
+	cipher, err := crypto.NewCipher(cfg.EncryptionKey)
+	if err != nil {
+		return err
+	}
 	pool, err := store.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
+	if cfg.AllowHTTPEndpoints {
+		logger.Warn("plain-http endpoint URLs are allowed; use only for local development")
+	}
 
 	srv := &http.Server{
-		Handler: api.New(logger, pool, cfg.AdminToken).Handler(),
+		Handler: api.New(logger, pool, api.Options{
+			AdminToken:         cfg.AdminToken,
+			Cipher:             cipher,
+			AllowHTTPEndpoints: cfg.AllowHTTPEndpoints,
+		}).Handler(),
 		// Without these, a client that opens a connection and sends bytes
 		// slowly (Slowloris) holds a goroutine and a socket forever.
 		ReadHeaderTimeout: 5 * time.Second,

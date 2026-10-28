@@ -14,7 +14,8 @@ shown at any point.
 
 ## M1: Ingest
 - [x] Admin token; applications; API key issue and revoke (FR-01–03)
-- [ ] Endpoints CRUD with URL validation; secret generation and encryption at rest (FR-04, 05, 07)
+- [x] Endpoints CRUD with URL validation; secret generation and encryption at rest (FR-04, 05, 07).
+  The blocked-IP part of FR-07 lands with `netguard` in M2.
 - [ ] `POST /v1/events` with idempotency and fan-out (FR-10–12)
 - [x] Problem+json errors (RFC 9457), cursor pagination
 

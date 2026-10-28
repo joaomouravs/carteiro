@@ -32,12 +32,28 @@ type testClient struct {
 	h http.Handler
 }
 
+func testCipher(t *testing.T) *crypto.Cipher {
+	t.Helper()
+	c, err := crypto.NewCipher(bytes.Repeat([]byte{7}, crypto.KeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 // newClient starts each test from an empty database.
 func newClient(t *testing.T) *testClient {
 	t.Helper()
+	return newClientWith(t, func(*Options) {})
+}
+
+func newClientWith(t *testing.T, configure func(*Options)) *testClient {
+	t.Helper()
 	testdb.Require(t, testPool)
 	testdb.Reset(t, testPool)
-	return &testClient{t: t, h: New(discard, testPool, adminToken).Handler()}
+	opts := Options{AdminToken: adminToken, Cipher: testCipher(t)}
+	configure(&opts)
+	return &testClient{t: t, h: New(discard, testPool, opts).Handler()}
 }
 
 // do sends a request. A string body is sent as is; anything else is encoded

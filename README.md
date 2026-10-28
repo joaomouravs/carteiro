@@ -2,7 +2,7 @@
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** M1 (ingest API) in progress: applications and API keys are done. See the [roadmap](docs/roadmap.md).
+**Status:** M1 (ingest API) in progress: applications, API keys and endpoints are done. See the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -50,6 +50,8 @@ installation and use the same versions as CI.
 |---|---|---|
 | `CARTEIRO_DATABASE_URL` | (required) | PostgreSQL connection string |
 | `CARTEIRO_ADMIN_TOKEN` | (required) | Operator token, at least 32 characters (`openssl rand -hex 32`) |
+| `CARTEIRO_ENCRYPTION_KEY` | (required) | Base64 of 32 bytes (`openssl rand -base64 32`); encrypts endpoint secrets |
+| `CARTEIRO_ALLOW_HTTP_ENDPOINTS` | `false` | Accept `http://` endpoint URLs; development only |
 | `CARTEIRO_HTTP_ADDR` | `:8080` | Address the API listens on |
 | `CARTEIRO_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `CARTEIRO_SHUTDOWN_TIMEOUT` | `15s` | Time in-flight requests get to finish on shutdown |
@@ -75,8 +77,15 @@ curl -s localhost:8080/v1/applications/<id>/api-keys -H "Authorization: Bearer $
 The producer then authenticates with the API key:
 
 ```sh
-curl -s localhost:8080/v1/me -H "Authorization: Bearer crt_..."
+KEY=crt_...
+curl -s localhost:8080/v1/me -H "Authorization: Bearer $KEY"
+
+curl -s localhost:8080/v1/endpoints -H "Authorization: Bearer $KEY"   -H 'Content-Type: application/json'   -d '{"url":"https://example.com/webhooks","event_types":["invoice.paid"]}'
+# {"id":"...","url":"https://example.com/webhooks", ..., "secret":"whsec_..."}   <- shown only once
 ```
+
+The receiver uses the `whsec_` secret to verify signatures. Carteiro stores it encrypted
+with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 
 | Method and path | Auth | Description |
 |---|---|---|
@@ -87,6 +96,11 @@ curl -s localhost:8080/v1/me -H "Authorization: Bearer crt_..."
 | `GET /v1/applications/{id}/api-keys` | admin | List an application's keys (prefix only) |
 | `DELETE /v1/applications/{id}/api-keys/{key_id}` | admin | Revoke a key (idempotent) |
 | `GET /v1/me` | API key | The application the key belongs to |
+| `POST /v1/endpoints` | API key | Create an endpoint; returns its signing secret once |
+| `GET /v1/endpoints` | API key | List endpoints, newest first (paginated) |
+| `GET /v1/endpoints/{id}` | API key | Get an endpoint |
+| `PATCH /v1/endpoints/{id}` | API key | Change `url`, `description` or `event_types`; omitted fields keep their value |
+| `DELETE /v1/endpoints/{id}` | API key | Delete an endpoint and its delivery history |
 
 ## Documentation
 

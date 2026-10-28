@@ -1,0 +1,212 @@
+package api
+
+import (
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/joaomouravs/carteiro/internal/crypto"
+	"github.com/joaomouravs/carteiro/internal/store"
+)
+
+type endpointResponse struct {
+	ID             uuid.UUID `json:"id"`
+	URL            string    `json:"url"`
+	Description    string    `json:"description"`
+	EventTypes     []string  `json:"event_types"`
+	Status         string    `json:"status"`
+	DisabledReason *string   `json:"disabled_reason"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	// Secret is set only in the response that creates the endpoint; the
+	// receiver needs it to verify signatures.
+	Secret string `json:"secret,omitempty"`
+}
+
+func toEndpointResponse(e store.Endpoint) endpointResponse {
+	types := e.EventTypes
+	if types == nil {
+		types = []string{} // always a JSON array, never null
+	}
+	return endpointResponse{
+		ID:             e.ID,
+		URL:            e.URL,
+		Description:    e.Description,
+		EventTypes:     types,
+		Status:         e.Status,
+		DisabledReason: e.DisabledReason,
+		CreatedAt:      e.CreatedAt,
+		UpdatedAt:      e.UpdatedAt,
+	}
+}
+
+func (s *Server) createEndpoint(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL         string   `json:"url"`
+		Description string   `json:"description"`
+		EventTypes  []string `json:"event_types"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	endpointURL, errs := s.validateEndpointURL(in.URL)
+	desc, descErrs := validateDescription(in.Description)
+	types, typeErrs := validateEventTypes(in.EventTypes)
+	if errs = append(append(errs, descErrs...), typeErrs...); len(errs) > 0 {
+		writeValidation(w, r, errs)
+		return
+	}
+
+	ctx := r.Context()
+	secret := crypto.NewEndpointSecret()
+	var ep store.Endpoint
+	// The endpoint and its secret are created together or not at all: an
+	// endpoint without a secret could never have a delivery signed.
+	err := store.InTx(ctx, s.pool, func(q *store.Queries) error {
+		var err error
+		ep, err = q.CreateEndpoint(ctx, store.CreateEndpointParams{
+			ApplicationID: applicationIDFrom(ctx),
+			URL:           endpointURL,
+			Description:   desc,
+			EventTypes:    types,
+		})
+		if err != nil {
+			return err
+		}
+		return q.CreateEndpointSecret(ctx, store.CreateEndpointSecretParams{
+			EndpointID: ep.ID,
+			// The endpoint id is the associated data: this ciphertext only
+			// decrypts as the secret of this endpoint.
+			SecretCiphertext: s.cipher.Encrypt(secret, ep.ID[:]),
+		})
+	})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+
+	resp := toEndpointResponse(ep)
+	resp.Secret = crypto.FormatEndpointSecret(secret)
+	w.Header().Set("Location", "/v1/endpoints/"+ep.ID.String())
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// endpointFromPath loads the endpoint named in the URL, scoped to the caller's
+// application. It writes the error response itself and reports false when
+// there is no such endpoint.
+func (s *Server) endpointFromPath(w http.ResponseWriter, r *http.Request) (store.Endpoint, bool) {
+	id, ok := pathID(r, "endpointID")
+	if !ok {
+		writeNotFound(w, r, "endpoint")
+		return store.Endpoint{}, false
+	}
+	ep, err := s.q.GetEndpoint(r.Context(), store.GetEndpointParams{ID: id, ApplicationID: applicationIDFrom(r.Context())})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeNotFound(w, r, "endpoint")
+		return store.Endpoint{}, false
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return store.Endpoint{}, false
+	}
+	return ep, true
+}
+
+func (s *Server) getEndpoint(w http.ResponseWriter, r *http.Request) {
+	if ep, ok := s.endpointFromPath(w, r); ok {
+		writeJSON(w, http.StatusOK, toEndpointResponse(ep))
+	}
+}
+
+func (s *Server) listEndpoints(w http.ResponseWriter, r *http.Request) {
+	page, errs := parsePage(r)
+	if errs != nil {
+		writeValidation(w, r, errs)
+		return
+	}
+	rows, err := s.q.ListEndpoints(r.Context(), store.ListEndpointsParams{
+		ApplicationID: applicationIDFrom(r.Context()),
+		Before:        page.before,
+		Limit:         int32(page.limit + 1), //nolint:gosec // limit is at most maxPageSize, validated by parsePage
+	})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, paginate(rows, page.limit,
+		func(e store.Endpoint) uuid.UUID { return e.ID }, toEndpointResponse))
+}
+
+// updateEndpoint applies a partial update: fields absent from the body (or
+// null) keep their value. An empty event_types array is a change, to "all
+// event types".
+func (s *Server) updateEndpoint(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "endpointID")
+	if !ok {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	var in struct {
+		URL         *string   `json:"url"`
+		Description *string   `json:"description"`
+		EventTypes  *[]string `json:"event_types"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+
+	params := store.UpdateEndpointParams{ID: id, ApplicationID: applicationIDFrom(r.Context())}
+	var errs []fieldError
+	if in.URL != nil {
+		u, e := s.validateEndpointURL(*in.URL)
+		params.URL, errs = &u, append(errs, e...)
+	}
+	if in.Description != nil {
+		d, e := validateDescription(*in.Description)
+		params.Description, errs = &d, append(errs, e...)
+	}
+	if in.EventTypes != nil {
+		// Non-nil even when empty: nil would mean "unchanged" to the query.
+		t, e := validateEventTypes(*in.EventTypes)
+		params.EventTypes, errs = t, append(errs, e...)
+	}
+	if len(errs) > 0 {
+		writeValidation(w, r, errs)
+		return
+	}
+
+	ep, err := s.q.UpdateEndpoint(r.Context(), params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toEndpointResponse(ep))
+}
+
+// deleteEndpoint also deletes the endpoint's secrets, deliveries and attempts
+// (ON DELETE CASCADE).
+func (s *Server) deleteEndpoint(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "endpointID")
+	if !ok {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	n, err := s.q.DeleteEndpoint(r.Context(), store.DeleteEndpointParams{ID: id, ApplicationID: applicationIDFrom(r.Context())})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	if n == 0 {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

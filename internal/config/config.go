@@ -2,10 +2,12 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +19,13 @@ type Config struct {
 	// AdminToken authorizes the operator endpoints (applications and API
 	// keys). Like DatabaseURL, it must never be logged.
 	AdminToken string
+	// EncryptionKey encrypts endpoint secrets at rest (AES-256, 32 bytes).
+	// Losing it makes every stored secret unreadable; leaking it together
+	// with a database dump leaks them all.
+	EncryptionKey []byte
+	// AllowHTTPEndpoints accepts plain-http endpoint URLs. Only for local
+	// development: webhooks over http can be read and forged in transit.
+	AllowHTTPEndpoints bool
 	// HTTPAddr is the host:port the API listens on.
 	HTTPAddr string
 	// LogLevel is the minimum level written to the log.
@@ -55,6 +64,23 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		errs = append(errs, fmt.Errorf("CARTEIRO_ADMIN_TOKEN: must have at least %d characters, got %d", minAdminTokenLen, len(v)))
 	default:
 		cfg.AdminToken = v
+	}
+
+	if v, _ := lookup("CARTEIRO_ENCRYPTION_KEY"); v == "" {
+		errs = append(errs, errors.New("CARTEIRO_ENCRYPTION_KEY is required (generate one with: openssl rand -base64 32)"))
+	} else if key, err := base64.StdEncoding.DecodeString(v); err != nil || len(key) != 32 {
+		errs = append(errs, errors.New("CARTEIRO_ENCRYPTION_KEY: must be 32 bytes encoded as base64 (openssl rand -base64 32)"))
+	} else {
+		cfg.EncryptionKey = key
+	}
+
+	if v, ok := lookup("CARTEIRO_ALLOW_HTTP_ENDPOINTS"); ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("CARTEIRO_ALLOW_HTTP_ENDPOINTS: must be true or false, got %q", v))
+		} else {
+			cfg.AllowHTTPEndpoints = b
+		}
 	}
 
 	if v, ok := lookup("CARTEIRO_HTTP_ADDR"); ok {
