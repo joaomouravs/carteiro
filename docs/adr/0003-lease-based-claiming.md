@@ -1,6 +1,6 @@
 # ADR 0003: Claim deliveries with short leases instead of long-held row locks
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-27
 
 ## Context

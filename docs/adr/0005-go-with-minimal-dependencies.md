@@ -1,6 +1,6 @@
 # ADR 0005: Go, the standard library, and SQL-first data access
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-27
 
 ## Context
