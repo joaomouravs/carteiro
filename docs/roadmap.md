@@ -4,13 +4,13 @@ Each milestone ends in a working, tested, documented state, so the repository ca
 shown at any point.
 
 ## M0: Foundation
-- [ ] Go module, project layout, `Makefile` (or `Taskfile`)
-- [ ] Configuration from environment, with validation
-- [ ] `docker compose` with PostgreSQL
-- [ ] Migrations (`goose`, embedded) and the initial schema
-- [ ] `sqlc` setup
-- [ ] `/healthz`, `/readyz`, graceful shutdown
-- [ ] CI: `golangci-lint`, `go test -race`, integration tests, `sqlc diff`, Docker build
+- [x] Go module, project layout, `Taskfile` (cross-platform, unlike `make`)
+- [x] Configuration from environment, with validation
+- [x] `docker compose` with PostgreSQL
+- [x] Migrations (`goose`, embedded) and the initial schema
+- [x] `sqlc` setup
+- [x] `/healthz`, `/readyz`, graceful shutdown
+- [x] CI: `golangci-lint`, `go test -race`, integration tests, `sqlc diff`, Docker build
 
 ## M1: Ingest
 - [ ] Admin token; applications; API key issue and revoke (FR-01–03)

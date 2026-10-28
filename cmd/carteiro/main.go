@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -67,7 +68,6 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 	defer pool.Close()
 
 	srv := &http.Server{
-		Addr:    cfg.HTTPAddr,
 		Handler: api.NewHandler(logger, pool),
 		// Without these, a client that opens a connection and sends bytes
 		// slowly (Slowloris) holds a goroutine and a socket forever.
@@ -78,11 +78,21 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
+	// Listening before starting the goroutine makes a bind error (port in
+	// use) fail here, synchronously.
+	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", cfg.HTTPAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	logger.Info("http server listening", "addr", ln.Addr().String())
+	return serveUntilDone(ctx, stop, srv, ln, cfg.ShutdownTimeout, logger)
+}
+
+// serveUntilDone serves on ln until ctx is cancelled, then shuts srv down,
+// giving in-flight requests up to timeout to finish.
+func serveUntilDone(ctx context.Context, stop context.CancelFunc, srv *http.Server, ln net.Listener, timeout time.Duration, logger *slog.Logger) error {
 	serveErr := make(chan error, 1)
-	go func() {
-		logger.Info("http server listening", "addr", cfg.HTTPAddr)
-		serveErr <- srv.ListenAndServe()
-	}()
+	go func() { serveErr <- srv.Serve(ln) }()
 
 	select {
 	case err := <-serveErr:
@@ -93,8 +103,8 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 	// immediately instead of waiting for the shutdown timeout.
 	stop()
 
-	logger.Info("shutting down", "timeout", cfg.ShutdownTimeout.String())
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	logger.Info("shutting down", "timeout", timeout.String())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	// Shutdown stops accepting connections and waits for in-flight requests.
 	if err := srv.Shutdown(shutdownCtx); err != nil {

@@ -21,7 +21,8 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer db.Close()
+	// Nothing useful can be done if closing fails after the migrations ran.
+	defer func() { _ = db.Close() }()
 
 	locker, err := lock.NewPostgresSessionLocker()
 	if err != nil {

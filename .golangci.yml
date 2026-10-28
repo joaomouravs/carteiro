@@ -1,0 +1,32 @@
+version: "2"
+
+linters:
+  # "standard" is errcheck, govet, ineffassign, staticcheck and unused.
+  default: standard
+  enable:
+    - bodyclose     # HTTP response bodies that are never closed leak connections
+    - errorlint     # comparing wrapped errors with == instead of errors.Is
+    - gosec         # common security mistakes
+    - misspell
+    - noctx         # network calls without a context cannot be cancelled
+    - nolintlint    # every //nolint must name a linter and give a reason
+    - unconvert
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: strict
+    rules:
+      # Tests use plain http.Get against local test servers.
+      - path: _test\.go
+        linters: [noctx, gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/joaomouravs/carteiro

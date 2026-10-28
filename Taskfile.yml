@@ -9,6 +9,8 @@ vars:
   # sqlc's PostgreSQL parser needs cgo, so it runs from its official image
   # instead of being installed. The version is pinned to keep output stable.
   SQLC: docker run --rm -v "{{.ROOT_DIR}}:/src" -w /src sqlc/sqlc:1.31.1
+  # Same version as CI (.github/workflows/ci.yml).
+  LINT: docker run --rm -v "{{.ROOT_DIR}}:/src" -w /src golangci/golangci-lint:v2.15.0 golangci-lint
 
 tasks:
   default:
@@ -73,7 +75,22 @@ tasks:
     cmds:
       - go test -race ./...
 
-  fmt:
-    desc: Format the code
+  lint:
+    desc: Run golangci-lint
     cmds:
-      - gofmt -w .
+      - "{{.LINT}} run"
+
+  fmt:
+    desc: Format the code (gofmt and goimports)
+    cmds:
+      - "{{.LINT}} fmt"
+
+  up:
+    desc: Build the image and run the whole stack (database, migrations, API)
+    cmds:
+      - "{{.COMPOSE}} up -d --build"
+
+  down:
+    desc: Stop the whole stack
+    cmds:
+      - "{{.COMPOSE}} down"

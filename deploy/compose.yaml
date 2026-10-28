@@ -1,5 +1,13 @@
 name: carteiro
 
+# Shared by every service that runs the Carteiro image.
+x-carteiro: &carteiro
+  build:
+    context: ..
+  image: carteiro:dev
+  environment:
+    CARTEIRO_DATABASE_URL: postgres://carteiro:carteiro@postgres:5432/carteiro?sslmode=disable
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -18,6 +26,24 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  # One-shot: applies migrations, then exits. The API starts only if it
+  # succeeded.
+  migrate:
+    <<: *carteiro
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *carteiro
+    command: ["serve"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
