@@ -137,6 +137,7 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 			Cipher:               cipher,
 			AllowHTTPEndpoints:   cfg.AllowHTTPEndpoints,
 			AllowPrivateNetworks: cfg.AllowPrivateNetworks,
+			SecretGracePeriod:    cfg.SecretGracePeriod,
 		}).Handler(),
 		// Without these, a client that opens a connection and sends bytes
 		// slowly (Slowloris) holds a goroutine and a socket forever.

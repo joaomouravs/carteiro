@@ -216,6 +216,43 @@ func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([
 	return items, nil
 }
 
+const lockEndpoint = `-- name: LockEndpoint :one
+
+SELECT id, application_id, url, description, event_types, status, disabled_reason, consecutive_failures, failing_since, created_at, updated_at FROM endpoints
+WHERE id = $1 AND application_id = $2
+FOR UPDATE
+`
+
+type LockEndpointParams struct {
+	ID            uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+// Secret rotation (FR-06).
+// LockEndpoint reads an endpoint and locks its row until the transaction
+// ends. Rotations lock it first, so two concurrent rotations of one endpoint
+// run one after the other: otherwise both would retire the same current
+// secret and both insert a new one, and the second insert would break the
+// one-current-secret index.
+func (q *Queries) LockEndpoint(ctx context.Context, arg LockEndpointParams) (Endpoint, error) {
+	row := q.db.QueryRow(ctx, lockEndpoint, arg.ID, arg.ApplicationID)
+	var i Endpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.URL,
+		&i.Description,
+		&i.EventTypes,
+		&i.Status,
+		&i.DisabledReason,
+		&i.ConsecutiveFailures,
+		&i.FailingSince,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const recordEndpointResult = `-- name: RecordEndpointResult :one
 
 UPDATE endpoints
@@ -250,6 +287,27 @@ func (q *Queries) RecordEndpointResult(ctx context.Context, arg RecordEndpointRe
 	var i RecordEndpointResultRow
 	err := row.Scan(&i.Status, &i.ConsecutiveFailures, &i.FailingLongEnough)
 	return i, err
+}
+
+const retireEndpointSecrets = `-- name: RetireEndpointSecrets :exec
+UPDATE endpoint_secrets
+SET expires_at = LEAST(COALESCE(expires_at, 'infinity'), now() + $1::bigint * interval '1 millisecond')
+WHERE endpoint_id = $2
+  AND (expires_at IS NULL OR expires_at > now())
+`
+
+type RetireEndpointSecretsParams struct {
+	GraceMs    int64
+	EndpointID uuid.UUID
+}
+
+// RetireEndpointSecrets sets every secret of the endpoint that is still valid
+// to expire after the grace period, or keeps an earlier expiry it already
+// has. With a grace period of zero they stop being valid at once, for a
+// secret that leaked.
+func (q *Queries) RetireEndpointSecrets(ctx context.Context, arg RetireEndpointSecretsParams) error {
+	_, err := q.db.Exec(ctx, retireEndpointSecrets, arg.GraceMs, arg.EndpointID)
+	return err
 }
 
 const updateEndpoint = `-- name: UpdateEndpoint :one

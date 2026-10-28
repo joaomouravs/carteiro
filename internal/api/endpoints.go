@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -277,4 +278,69 @@ func (s *Server) replayEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]int64{"replayed": n})
+}
+
+// maxSecretGracePeriod bounds how long a rotated-out secret may stay valid.
+const maxSecretGracePeriod = 7 * 24 * time.Hour
+
+// rotateSecret gives the endpoint a new signing secret (FR-06) and returns it,
+// once, as creating the endpoint does. Until the grace period ends,
+// deliveries are signed with the new and the old secrets, so the receiver
+// can switch whenever it likes in that window. A grace period of 0 revokes
+// the old secrets at once, for a secret that leaked.
+func (s *Server) rotateSecret(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "endpointID")
+	if !ok {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	var in struct {
+		GracePeriodSeconds *int64 `json:"grace_period_seconds"`
+	}
+	// The body is optional: without one, the configured grace period applies.
+	if r.ContentLength != 0 && !decodeJSON(w, r, &in) {
+		return
+	}
+	grace := s.secretGracePeriod
+	if in.GracePeriodSeconds != nil {
+		secs := *in.GracePeriodSeconds
+		if secs < 0 || secs > int64(maxSecretGracePeriod/time.Second) {
+			writeValidation(w, r, []fieldError{{"grace_period_seconds",
+				fmt.Sprintf("must be from 0 to %d (7 days)", int64(maxSecretGracePeriod/time.Second))}})
+			return
+		}
+		grace = time.Duration(secs) * time.Second
+	}
+
+	ctx := r.Context()
+	secret := crypto.NewEndpointSecret()
+	var ep store.Endpoint
+	err := store.InTx(ctx, s.pool, func(q *store.Queries) error {
+		var err error
+		if ep, err = q.LockEndpoint(ctx, store.LockEndpointParams{ID: id, ApplicationID: applicationIDFrom(ctx)}); err != nil {
+			return err
+		}
+		// Retire first: the unique index allows one current secret, and
+		// the new one becomes current below.
+		if err := q.RetireEndpointSecrets(ctx, store.RetireEndpointSecretsParams{EndpointID: ep.ID, GraceMs: grace.Milliseconds()}); err != nil {
+			return err
+		}
+		return q.CreateEndpointSecret(ctx, store.CreateEndpointSecretParams{
+			EndpointID:       ep.ID,
+			SecretCiphertext: s.cipher.Encrypt(secret, ep.ID[:]),
+		})
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeNotFound(w, r, "endpoint")
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+
+	resp := toEndpointResponse(ep)
+	resp.Secret = crypto.FormatEndpointSecret(secret)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, resp)
 }

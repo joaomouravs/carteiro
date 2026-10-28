@@ -70,3 +70,25 @@ RETURNING status,
 UPDATE endpoints
 SET status = 'disabled', disabled_reason = sqlc.arg('reason'), updated_at = now()
 WHERE id = sqlc.arg('id') AND status = 'active';
+
+-- Secret rotation (FR-06).
+
+-- LockEndpoint reads an endpoint and locks its row until the transaction
+-- ends. Rotations lock it first, so two concurrent rotations of one endpoint
+-- run one after the other: otherwise both would retire the same current
+-- secret and both insert a new one, and the second insert would break the
+-- one-current-secret index.
+-- name: LockEndpoint :one
+SELECT * FROM endpoints
+WHERE id = $1 AND application_id = $2
+FOR UPDATE;
+
+-- RetireEndpointSecrets sets every secret of the endpoint that is still valid
+-- to expire after the grace period, or keeps an earlier expiry it already
+-- has. With a grace period of zero they stop being valid at once, for a
+-- secret that leaked.
+-- name: RetireEndpointSecrets :exec
+UPDATE endpoint_secrets
+SET expires_at = LEAST(COALESCE(expires_at, 'infinity'), now() + sqlc.arg('grace_ms')::bigint * interval '1 millisecond')
+WHERE endpoint_id = sqlc.arg('endpoint_id')
+  AND (expires_at IS NULL OR expires_at > now());

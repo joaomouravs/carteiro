@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -15,6 +16,9 @@ import (
 	"github.com/joaomouravs/carteiro/internal/netguard"
 	"github.com/joaomouravs/carteiro/internal/store"
 )
+
+// defaultSecretGracePeriod is FR-06's default.
+const defaultSecretGracePeriod = 24 * time.Hour
 
 // Options configures a Server.
 type Options struct {
@@ -26,6 +30,9 @@ type Options struct {
 	// AllowPrivateNetworks accepts endpoints on loopback and private
 	// addresses (development only).
 	AllowPrivateNetworks bool
+	// SecretGracePeriod is how long a rotated-out secret stays valid by
+	// default (FR-06). Zero means defaultSecretGracePeriod.
+	SecretGracePeriod time.Duration
 	// Resolver looks up endpoint hosts (FR-07). Nil means net.DefaultResolver;
 	// tests set a fake one so they do not depend on real DNS.
 	Resolver Resolver
@@ -48,11 +55,16 @@ type Server struct {
 	adminTokenHash     [sha256.Size]byte
 	allowHTTPEndpoints bool
 	netPolicy          netguard.Policy
+	secretGracePeriod  time.Duration
 	resolver           Resolver
 }
 
 // New returns a Server backed by pool.
 func New(logger *slog.Logger, pool *pgxpool.Pool, opts Options) *Server {
+	grace := opts.SecretGracePeriod
+	if grace == 0 {
+		grace = defaultSecretGracePeriod
+	}
 	var resolver Resolver = net.DefaultResolver
 	if opts.Resolver != nil {
 		resolver = opts.Resolver
@@ -67,6 +79,7 @@ func New(logger *slog.Logger, pool *pgxpool.Pool, opts Options) *Server {
 		allowHTTPEndpoints: opts.AllowHTTPEndpoints,
 		netPolicy:          netguard.Policy{AllowPrivateNetworks: opts.AllowPrivateNetworks},
 		resolver:           resolver,
+		secretGracePeriod:  grace,
 	}
 }
 
@@ -96,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /v1/endpoints/{endpointID}", producer(s.deleteEndpoint))
 	mux.Handle("POST /v1/endpoints/{endpointID}/enable", producer(s.enableEndpoint))
 	mux.Handle("POST /v1/endpoints/{endpointID}/replay", producer(s.replayEndpoint))
+	mux.Handle("POST /v1/endpoints/{endpointID}/rotate-secret", producer(s.rotateSecret))
 	mux.Handle("POST /v1/events", producer(s.createEvent))
 	mux.Handle("GET /v1/events", producer(s.listEvents))
 	mux.Handle("GET /v1/events/{eventID}", producer(s.getEvent))

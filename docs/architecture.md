@@ -167,6 +167,13 @@ webhook-signature: v1,<base64(HMAC-SHA256(secret, id + "." + timestamp + "." + b
 During a rotation grace period, `webhook-signature` carries one signature per valid
 secret, separated by spaces, so receivers can switch secrets without downtime.
 
+Rotating (FR-06) sets every still-valid secret to expire at the end of the grace period,
+keeping any earlier expiry, and inserts the new current one. The rotation first locks the
+endpoint row, so concurrent rotations of one endpoint run one at a time: otherwise two
+would retire the same current secret and both insert a new one, which the
+one-current-secret index rejects. A grace period of zero revokes the old secrets at once,
+for a secret that leaked.
+
 ## Outbound network safety
 
 Receivers are URLs chosen by producers, so the worker must not become a way to reach

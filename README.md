@@ -91,6 +91,7 @@ curl -s localhost:8080/v1/events/$EVENT/deliveries -H "Authorization: Bearer $KE
 | `CARTEIRO_MAX_ATTEMPTS` | `12` | Attempts before a delivery is marked `dead` (1 to 100) |
 | `CARTEIRO_DISABLE_AFTER` | `120h` | An endpoint is disabled once it has failed for this long... |
 | `CARTEIRO_DISABLE_MIN_FAILURES` | `10` | ...and at least this many times in a row; both must hold |
+| `CARTEIRO_SECRET_GRACE_PERIOD` | `24h` | How long a rotated-out secret keeps signing deliveries, unless the request sets one |
 
 ## API
 
@@ -161,6 +162,7 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 | `PATCH /v1/endpoints/{id}` | API key | Change `url`, `description` or `event_types`; omitted fields keep their value |
 | `DELETE /v1/endpoints/{id}` | API key | Delete an endpoint and its delivery history |
 | `POST /v1/endpoints/{id}/enable` | API key | Re-enable a disabled endpoint, with a clean failure record |
+| `POST /v1/endpoints/{id}/rotate-secret` | API key | New signing secret, returned once; the old one stays valid for the grace period, or `{"grace_period_seconds": 0}` revokes it at once |
 | `POST /v1/endpoints/{id}/replay` | API key | Replay every `dead` delivery created since `{"since": "<RFC 3339>"}`; returns `{"replayed": n}` |
 | `POST /v1/events` | API key | Publish an event (payload up to 256 KiB); optional `Idempotency-Key` |
 | `GET /v1/events` | API key | List events, newest first (paginated); optional `?event_type=` |

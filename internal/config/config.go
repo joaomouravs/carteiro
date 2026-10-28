@@ -56,6 +56,9 @@ type Config struct {
 	// failing (FR-08): both must be reached.
 	DisableAfter       time.Duration
 	DisableMinFailures int
+	// SecretGracePeriod is how long a rotated-out endpoint secret stays
+	// valid by default (FR-06).
+	SecretGracePeriod time.Duration
 }
 
 // Bounds for the integer settings. They exist to catch typos, such as an
@@ -86,6 +89,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		MaxAttempts:        12,
 		DisableAfter:       5 * 24 * time.Hour,
 		DisableMinFailures: 10,
+		SecretGracePeriod:  24 * time.Hour,
 	}
 	var errs []error
 
@@ -163,6 +167,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	parseDuration("CARTEIRO_RETRY_BASE", &cfg.RetryBase)
 	parseDuration("CARTEIRO_RETRY_CAP", &cfg.RetryCap)
 	parseDuration("CARTEIRO_DISABLE_AFTER", &cfg.DisableAfter)
+	parseDuration("CARTEIRO_SECRET_GRACE_PERIOD", &cfg.SecretGracePeriod)
 
 	parseInt := func(name string, dst *int, maxValue int) {
 		v, ok := lookup(name)
