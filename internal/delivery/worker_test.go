@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -480,5 +481,45 @@ func TestRunFinishesInFlightDeliveriesOnShutdown(t *testing.T) {
 	}
 	if d := f.delivery(id); d.status != statusSucceeded {
 		t.Errorf("delivery = %+v, want the in-flight result recorded", d)
+	}
+}
+
+// TestReceiverThatRecovers is the end-to-end case from docs/architecture.md:
+// a receiver fails twice, then comes back. The delivery must succeed on the
+// third attempt, with every attempt in the log.
+func TestReceiverThatRecovers(t *testing.T) {
+	var calls atomic.Int32
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) <= 2 {
+			http.Error(w, "deploy in progress", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	opts := testOptions()
+	opts.Backoff = Backoff{Base: time.Millisecond, Cap: time.Millisecond, MaxAttempts: 5}
+	f := newFixture(t, srv.URL, opts)
+	_, id := f.publish("invoice.paid", `{}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- f.w.Run(ctx) }()
+	waitFor(t, "the delivery to succeed", func() bool { return f.delivery(id).status == statusSucceeded })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run = %v", err)
+	}
+
+	var statuses []int32
+	for _, a := range f.attempts(id) {
+		if a.responseStatus != nil {
+			statuses = append(statuses, *a.responseStatus)
+		}
+	}
+	if want := []int32{503, 503, 200}; !slices.Equal(statuses, want) {
+		t.Errorf("attempt statuses = %v, want %v", statuses, want)
+	}
+	if d := f.delivery(id); d.attemptCount != 3 {
+		t.Errorf("attempt_count = %d, want 3", d.attemptCount)
 	}
 }
