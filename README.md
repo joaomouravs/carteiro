@@ -2,7 +2,7 @@
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** M1 (ingest API) in progress: applications, API keys and endpoints are done. See the [roadmap](docs/roadmap.md).
+**Status:** M1 (ingest API) done: events are accepted and queued. Delivery (M2) is next. See the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -84,6 +84,19 @@ curl -s localhost:8080/v1/endpoints -H "Authorization: Bearer $KEY"   -H 'Conten
 # {"id":"...","url":"https://example.com/webhooks", ..., "secret":"whsec_..."}   <- shown only once
 ```
 
+Publishing an event queues one delivery for every active endpoint subscribed to its type,
+in the same transaction:
+
+```sh
+curl -s localhost:8080/v1/events -H "Authorization: Bearer $KEY"   -H 'Content-Type: application/json' -H 'Idempotency-Key: invoice-in_1-paid'   -d '{"event_type":"invoice.paid","payload":{"invoice":"in_1","amount":1999}}'
+# 202 {"id":"...","event_type":"invoice.paid","payload":{...},"idempotency_key":"invoice-in_1-paid",...}
+```
+
+Repeating a request with the same `Idempotency-Key` returns the original event with `200`
+and `Idempotent-Replayed: true`; reusing the key with a different payload returns `409`.
+Payloads are compared as JSON values, so key order and whitespace do not matter
+([ADR 0006](docs/adr/0006-idempotency-compares-normalized-json.md)).
+
 The receiver uses the `whsec_` secret to verify signatures. Carteiro stores it encrypted
 with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 
@@ -101,6 +114,7 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 | `GET /v1/endpoints/{id}` | API key | Get an endpoint |
 | `PATCH /v1/endpoints/{id}` | API key | Change `url`, `description` or `event_types`; omitted fields keep their value |
 | `DELETE /v1/endpoints/{id}` | API key | Delete an endpoint and its delivery history |
+| `POST /v1/events` | API key | Publish an event (payload up to 256 KiB); optional `Idempotency-Key` |
 
 ## Documentation
 
@@ -112,6 +126,7 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
   - [0003: Lease-based claiming](docs/adr/0003-lease-based-claiming.md)
   - [0004: At-least-once delivery, without ordering](docs/adr/0004-at-least-once-delivery.md)
   - [0005: Go with minimal dependencies](docs/adr/0005-go-with-minimal-dependencies.md)
+  - [0006: Idempotency compares normalized JSON](docs/adr/0006-idempotency-compares-normalized-json.md)
 
 ## License
 

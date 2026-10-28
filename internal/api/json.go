@@ -9,8 +9,9 @@ import (
 	"net/http"
 )
 
-// maxBodyBytes bounds every request body read by decodeJSON (NFR-SEC-05), so
-// a client cannot make the server buffer an unbounded amount of memory.
+// maxBodyBytes bounds request bodies (NFR-SEC-05), so a client cannot make the
+// server buffer an unbounded amount of memory. Event payloads get a larger
+// limit, maxEventBodyBytes.
 const maxBodyBytes = 64 << 10
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -27,6 +28,11 @@ func writeJSONType(w http.ResponseWriter, status int, contentType string, body a
 // When the body is unacceptable it writes the error response itself and
 // returns false, so handlers only need `if !decodeJSON(...) { return }`.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeJSONLimit(w, r, dst, maxBodyBytes)
+}
+
+// decodeJSONLimit is decodeJSON with a body size limit other than the default.
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		if mt, _, err := mime.ParseMediaType(ct); err != nil || mt != "application/json" {
 			writeProblem(w, r, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
@@ -34,7 +40,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		}
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	// Rejecting unknown fields turns a misspelled field name into an error
 	// instead of a silently ignored field.
