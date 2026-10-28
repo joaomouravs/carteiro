@@ -170,7 +170,9 @@ The client also ignores `HTTP_PROXY` and friends, because through a proxy the di
 would check the proxy's address instead of the receiver's, and it does not follow
 redirects (NFR-SEC-04), because a public receiver could redirect to an internal URL.
 Endpoint creation resolves the host and rejects it if any of its addresses is blocked
-(FR-07); that check only gives an early error, and the dialer remains the guard.
+(FR-07); that check only gives an early error, and the dialer remains the guard. A host
+that does not resolve yet is accepted, because receivers are often deployed after their
+endpoint is created: they need the secret that creating it returns.
 
 `CARTEIRO_ALLOW_PRIVATE_NETWORKS` (development only) opens loopback and the private
 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) so receivers on

@@ -61,5 +61,18 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # The example receiver (examples/receiver), only with --profile demo. It
+  # needs the secret of an endpoint created for http://receiver:9000/webhooks;
+  # see "Trying it end to end" in the README.
+  receiver:
+    profiles: [demo]
+    build:
+      context: ..
+      dockerfile: examples/receiver/Dockerfile
+    environment:
+      # Empty when unset, so other commands still work; the receiver then
+      # exits with a message saying what is missing.
+      RECEIVER_SECRET: ${RECEIVER_SECRET:-}
+
 volumes:
   pgdata:

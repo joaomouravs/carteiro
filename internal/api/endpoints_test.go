@@ -126,7 +126,6 @@ func TestEndpointURLValidation(t *testing.T) {
 		{"host resolving to a private address", "https://internal.example.com/hook"},
 		{"host with one private address among public ones", "https://mixed.example.com/hook"},
 		{"localhost", "https://localhost/hook"},
-		{"host that does not resolve", "https://missing.example.com/hook"},
 	}
 	for _, tt := range invalid {
 		t.Run(tt.name, func(t *testing.T) {
@@ -151,6 +150,13 @@ func TestEndpointURLValidation(t *testing.T) {
 		if len(p.Errors) != 1 || p.Errors[0].Field != "url" {
 			t.Errorf("errors = %+v, want one on url", p.Errors)
 		}
+	})
+
+	// A receiver is often deployed after its endpoint exists, since it needs
+	// the endpoint's secret: a host without DNS yet is not an error.
+	t.Run("host that does not resolve yet", func(t *testing.T) {
+		fresh := newClient(t) // the subtest above reset the database
+		fresh.createEndpoint(fresh.producer(), map[string]any{"url": "https://missing.example.com/hook"})
 	})
 }
 

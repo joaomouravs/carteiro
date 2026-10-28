@@ -65,8 +65,13 @@ func (s *Server) validateEndpointURL(ctx context.Context, raw string) (string, [
 	ctx, cancel := context.WithTimeout(ctx, hostLookupTimeout)
 	defer cancel()
 	addrs, err := s.resolver.LookupNetIP(ctx, "ip", u.Hostname())
-	if err != nil || len(addrs) == 0 {
-		return invalid("host could not be resolved")
+	if err != nil {
+		// A host that does not resolve yet is accepted. Receivers are often
+		// configured before their DNS exists: the endpoint's secret is
+		// needed to deploy the receiver, and only creating the endpoint
+		// returns it. Nothing is lost, since the dialer checks the address
+		// it actually connects to, and a typo shows up as failed attempts.
+		return u.String(), nil
 	}
 	// Every address must be allowed, not just one: a hostname can resolve to
 	// a public and an internal address at once, and the client may dial

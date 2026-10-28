@@ -25,7 +25,7 @@ shown at any point.
 - [x] Worker: lease-based claiming, fencing, lease recovery (ADR 0003)
 - [x] Backoff with jitter, `Retry-After`, `dead` state (FR-14, 15)
 - [x] Attempts log and query endpoints (FR-16, 17)
-- [ ] Example receiver using the official Standard Webhooks library
+- [x] Example receiver using the official Standard Webhooks library
 
 ## M3: Operations
 - [ ] Replay, single and bulk (FR-18)

@@ -88,7 +88,7 @@ tasks:
         -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal
         -e TESTCONTAINERS_RYUK_DISABLED=true
         -e CGO_ENABLED=1
-        golang:1.27.3 go test -race -count=1 ./...
+        golang:1.27.3 sh -c "go test -race -count=1 ./... && cd examples/receiver && go test -race -count=1 ./..."
 
   lint:
     desc: Run golangci-lint

@@ -25,6 +25,12 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0 # same as Taskfile.yml
+      # The example receiver is its own module, so ./... above skips it.
+      - name: Lint the example receiver
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          working-directory: examples/receiver
 
   test:
     runs-on: ubuntu-latest
@@ -36,6 +42,11 @@ jobs:
       # Integration tests start PostgreSQL through the runner's Docker
       # daemon (Testcontainers).
       - name: Test with the race detector
+        run: go test -race -count=1 ./...
+      # Signs with Carteiro's code and verifies with the official Standard
+      # Webhooks library: fails if a change breaks compatibility.
+      - name: Test the example receiver
+        working-directory: examples/receiver
         run: go test -race -count=1 ./...
 
   generated-code:

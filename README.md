@@ -2,9 +2,9 @@
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** M2 (delivery) in progress: events are signed, delivered, retried with backoff and
-recorded, and every attempt can be queried through the API. The example receiver is next. See
-the [roadmap](docs/roadmap.md).
+**Status:** M2 (delivery) done: events are signed, delivered, retried with backoff and
+recorded, and every attempt can be queried through the API. Operations (M3: replay, endpoint
+disabling, secret rotation, metrics) is next. See the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -46,6 +46,30 @@ task sqlc       # regenerate Go code after changing a query or a migration
 
 `sqlc` and `golangci-lint` run from their official Docker images, so they need no
 installation and use the same versions as CI.
+
+### Trying it end to end
+
+[`examples/receiver`](examples/receiver/main.go) is a receiver that verifies webhooks
+with the official Standard Webhooks library and deduplicates them by `webhook-id`. Its
+tests sign with Carteiro's code and verify with that library, which is the proof that
+the two agree. To watch a webhook travel through the stack:
+
+```sh
+docker compose -f deploy/compose.yaml up -d --build --wait
+ADMIN=dev-admin-token-change-me-0123456789
+APP=$(curl -s localhost:8080/v1/applications -H "Authorization: Bearer $ADMIN" --json '{"name":"Demo"}' | jq -r .id)
+KEY=$(curl -s localhost:8080/v1/applications/$APP/api-keys -H "Authorization: Bearer $ADMIN" --json '{}' | jq -r .key)
+
+# The receiver needs the endpoint's secret, so the endpoint comes first.
+export RECEIVER_SECRET=$(curl -s localhost:8080/v1/endpoints -H "Authorization: Bearer $KEY" \
+  --json '{"url":"http://receiver:9000/webhooks"}' | jq -r .secret)
+docker compose -f deploy/compose.yaml --profile demo up -d --build --wait receiver
+
+EVENT=$(curl -s localhost:8080/v1/events -H "Authorization: Bearer $KEY" \
+  --json '{"event_type":"invoice.paid","payload":{"invoice":"in_42"}}' | jq -r .id)
+docker compose -f deploy/compose.yaml logs receiver    # msg="webhook received" type=invoice.paid
+curl -s localhost:8080/v1/events/$EVENT/deliveries -H "Authorization: Bearer $KEY"   # "status":"succeeded"
+```
 
 ## Configuration
 
