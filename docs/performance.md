@@ -60,6 +60,24 @@ only when there is one, so those successes no longer write or lock the row; a te
 that the row's `xmin` stays the same. Failures still update it, which is right: they are
 rarer, and failing endpoints are slow anyway.
 
+## A worker killed mid-delivery
+
+[`crash.sh`](../loadtest/crash.sh) loads 20,000 deliveries, starts two workers, and once
+about half are delivered kills one with `SIGKILL`: no shutdown, no chance to record what
+it was sending. Every delivery must still succeed (NFR-REL-01). A run on the development
+laptop:
+
+```
+== killed one worker with SIGKILL; 8 deliveries were in flight across both workers
+20000 deliveries, all succeeded; 9 reclaimed after the crash (attempt_count > 1), 20000 attempts recorded
+```
+
+The 9 deliveries the dead worker held stayed leased until their lease expired, then the
+surviving worker reclaimed them as attempt 2. The attempts the dead worker was making were
+never recorded, which is why there are as many attempts as deliveries; its receiver may
+still have received them, so those 9 could arrive twice, as at-least-once delivery allows
+([ADR 0004](adr/0004-at-least-once-delivery.md)). The Load test workflow runs this too.
+
 ## Results
 
 The workflow writes a table per run to its summary; the latest are copied here with the

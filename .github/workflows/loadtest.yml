@@ -103,6 +103,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           cat ingest.txt
 
+      - name: Fault injection
+        run: |
+          # A worker killed with SIGKILL mid-run must lose no delivery.
+          bash loadtest/crash.sh | tee crash.txt
+          {
+            echo "## Fault injection: a worker killed with SIGKILL halfway through $DELIVERIES deliveries"
+            echo
+            echo '```'
+            sed -n '/^== killed/,$p' crash.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Stop the stack
         if: always()
         run: $COMPOSE down --volumes

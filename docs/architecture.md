@@ -242,5 +242,5 @@ receiver lives there, and it holds the cloud metadata service.
 | Integration | Repository queries, claiming, fencing, migrations | Real PostgreSQL via Testcontainers |
 | End-to-end | Publish → deliver → verify signature; receiver that fails N times then recovers | Carteiro in-process + `httptest` receiver |
 | Concurrency | N workers draining the queue: every delivery succeeds, no row is claimed twice concurrently | Integration test with the race detector |
-| Fault injection | Worker killed mid-delivery: the lease expires and the delivery still completes | Integration test |
+| Fault injection | Worker killed mid-delivery: the lease expires and the delivery still completes | Integration test (lease expired by hand), and `loadtest/crash.sh`, which kills a real worker with `SIGKILL` |
 | Load | Throughput and latency, published in the README | k6 |

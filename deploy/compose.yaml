@@ -14,6 +14,7 @@ x-carteiro: &carteiro
     CARTEIRO_ALLOW_PRIVATE_NETWORKS: "true"
     # Overridable from the shell, for load tests.
     CARTEIRO_WORKER_CONCURRENCY: ${CARTEIRO_WORKER_CONCURRENCY:-10}
+    CARTEIRO_DELIVERY_TIMEOUT: ${CARTEIRO_DELIVERY_TIMEOUT:-15s}
 
 services:
   postgres:
