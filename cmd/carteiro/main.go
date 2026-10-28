@@ -27,10 +27,15 @@ import (
 	"github.com/joaomouravs/carteiro/internal/crypto"
 	"github.com/joaomouravs/carteiro/internal/delivery"
 	"github.com/joaomouravs/carteiro/internal/netguard"
+	"github.com/joaomouravs/carteiro/internal/retention"
 	"github.com/joaomouravs/carteiro/internal/store"
 )
 
 const usage = "usage: carteiro <serve|work|all|migrate>"
+
+// purgeInterval is how often a worker process deletes data past retention.
+// Old data piles up slowly, so hourly is plenty.
+const purgeInterval = time.Hour
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -105,12 +110,25 @@ func start(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 		DisableAfter:       cfg.DisableAfter,
 		DisableMinFailures: cfg.DisableMinFailures,
 	})
+	// Every worker process also purges old data (FR-21); an advisory lock
+	// keeps two of them from purging at the same time.
+	purger := retention.New(logger, pool, cfg.Retention)
+	runWorker := func(ctx context.Context) error {
+		purged := make(chan struct{})
+		go func() {
+			purger.Run(ctx, purgeInterval)
+			close(purged)
+		}()
+		err := w.Run(ctx)
+		<-purged
+		return err
+	}
 	if !r.api {
 		// As in serveUntilDone: once shutdown starts, a second Ctrl+C kills
 		// the process instead of waiting for in-flight deliveries.
 		context.AfterFunc(ctx, stop)
 		logger.Info("worker started", "concurrency", cfg.WorkerConcurrency)
-		err := w.Run(ctx)
+		err := runWorker(ctx)
 		logger.Info("worker stopped")
 		return err
 	}
@@ -119,7 +137,7 @@ func start(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 	// stops too, rather than leave a process that looks half alive.
 	workerCtx, cancelWorker := context.WithCancel(ctx)
 	workerDone := make(chan error, 1)
-	go func() { workerDone <- w.Run(workerCtx) }()
+	go func() { workerDone <- runWorker(workerCtx) }()
 	logger.Info("worker started", "concurrency", cfg.WorkerConcurrency)
 
 	apiErr := serve(ctx, stop, cfg, logger, pool, cipher)

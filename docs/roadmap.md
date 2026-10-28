@@ -32,7 +32,7 @@ shown at any point.
 - [x] Automatic endpoint disabling and re-enabling (FR-08, 09)
 - [x] Secret rotation with a grace period (FR-06)
 - [ ] Prometheus metrics; Grafana dashboard provisioned by compose (FR-20)
-- [ ] Retention job (FR-21)
+- [x] Retention job (FR-21)
 
 ## M4: Proof
 - [ ] Concurrency and fault-injection tests

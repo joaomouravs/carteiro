@@ -59,6 +59,8 @@ type Config struct {
 	// SecretGracePeriod is how long a rotated-out endpoint secret stays
 	// valid by default (FR-06).
 	SecretGracePeriod time.Duration
+	// Retention is how long events and attempts are kept (FR-21).
+	Retention time.Duration
 }
 
 // Bounds for the integer settings. They exist to catch typos, such as an
@@ -90,6 +92,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		DisableAfter:       5 * 24 * time.Hour,
 		DisableMinFailures: 10,
 		SecretGracePeriod:  24 * time.Hour,
+		Retention:          30 * 24 * time.Hour,
 	}
 	var errs []error
 
@@ -168,6 +171,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	parseDuration("CARTEIRO_RETRY_CAP", &cfg.RetryCap)
 	parseDuration("CARTEIRO_DISABLE_AFTER", &cfg.DisableAfter)
 	parseDuration("CARTEIRO_SECRET_GRACE_PERIOD", &cfg.SecretGracePeriod)
+	parseDuration("CARTEIRO_RETENTION", &cfg.Retention)
 
 	parseInt := func(name string, dst *int, maxValue int) {
 		v, ok := lookup(name)

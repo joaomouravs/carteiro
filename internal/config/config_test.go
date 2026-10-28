@@ -51,7 +51,8 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.WorkerConcurrency != 10 || cfg.DeliveryTimeout != 15*time.Second || cfg.PollInterval != time.Second ||
 		cfg.RetryBase != 30*time.Second || cfg.RetryCap != 6*time.Hour || cfg.MaxAttempts != 12 ||
-		cfg.DisableAfter != 120*time.Hour || cfg.DisableMinFailures != 10 || cfg.SecretGracePeriod != 24*time.Hour {
+		cfg.DisableAfter != 120*time.Hour || cfg.DisableMinFailures != 10 || cfg.SecretGracePeriod != 24*time.Hour ||
+		cfg.Retention != 720*time.Hour {
 		t.Errorf("unexpected worker defaults: %+v", cfg)
 	}
 }
@@ -67,13 +68,15 @@ func TestLoadWorkerOverrides(t *testing.T) {
 		"CARTEIRO_DISABLE_AFTER":        "48h",
 		"CARTEIRO_DISABLE_MIN_FAILURES": "3",
 		"CARTEIRO_SECRET_GRACE_PERIOD":  "1h",
+		"CARTEIRO_RETENTION":            "2160h",
 	})))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.WorkerConcurrency != 50 || cfg.DeliveryTimeout != 5*time.Second || cfg.PollInterval != 250*time.Millisecond ||
 		cfg.RetryBase != time.Minute || cfg.RetryCap != time.Hour || cfg.MaxAttempts != 5 ||
-		cfg.DisableAfter != 48*time.Hour || cfg.DisableMinFailures != 3 || cfg.SecretGracePeriod != time.Hour {
+		cfg.DisableAfter != 48*time.Hour || cfg.DisableMinFailures != 3 || cfg.SecretGracePeriod != time.Hour ||
+		cfg.Retention != 2160*time.Hour {
 		t.Errorf("overrides not applied: %+v", cfg)
 	}
 }

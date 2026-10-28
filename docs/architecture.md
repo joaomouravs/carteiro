@@ -31,6 +31,7 @@ internal/
   delivery/            worker loop, claiming, HTTP sender, backoff
   signing/             Standard Webhooks signing and verification
   netguard/            SSRF-safe dialer
+  retention/           hourly purge of data past the retention period
   crypto/              AES-GCM for secrets at rest, API key generation and hashing
   store/               generated sqlc code + hand-written repository methods
   config/              environment configuration
@@ -152,6 +153,17 @@ disabled endpoints. After fixing the receiver, the producer enables the endpoint
 (FR-09) and replays what died in the meantime (FR-18). Failures on Carteiro's side, such
 as a secret that no longer decrypts, are logged as attempts but do not count against the
 endpoint.
+
+### Retention
+
+Every worker process purges hourly what is older than `CARTEIRO_RETENTION` (FR-21):
+events, whose deliveries and attempts go with them by `ON DELETE CASCADE`; old attempts of
+events that are kept; and secrets past their rotation grace period. An event with a
+delivery still pending or in flight is kept, so retention never cancels work. Deletes run
+in batches of 1,000, each its own short transaction, instead of one statement that would
+hold locks and write WAL for minutes on a large table. A session-level advisory lock lets
+one process purge at a time; the others skip the round, and PostgreSQL releases the lock
+if its holder dies.
 
 ## Signing
 

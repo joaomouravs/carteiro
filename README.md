@@ -91,6 +91,7 @@ curl -s localhost:8080/v1/events/$EVENT/deliveries -H "Authorization: Bearer $KE
 | `CARTEIRO_MAX_ATTEMPTS` | `12` | Attempts before a delivery is marked `dead` (1 to 100) |
 | `CARTEIRO_DISABLE_AFTER` | `120h` | An endpoint is disabled once it has failed for this long... |
 | `CARTEIRO_DISABLE_MIN_FAILURES` | `10` | ...and at least this many times in a row; both must hold |
+| `CARTEIRO_RETENTION` | `720h` | Events and attempts older than this are deleted, hourly, by the worker |
 | `CARTEIRO_SECRET_GRACE_PERIOD` | `24h` | How long a rotated-out secret keeps signing deliveries, unless the request sets one |
 
 ## API
