@@ -281,10 +281,10 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 	case fenced:
 		log.Warn("lease lost before the result was recorded; result discarded", "status", status)
 	case status == statusSucceeded:
-		log.Debug("delivered", "response_status", res.status, "duration", duration)
+		log.Debug("delivered", "response_status", res.status, "duration_ms", duration.Milliseconds())
 	default:
 		log.Info("delivery attempt failed", "next_status", status,
-			"response_status", res.status, "err", res.err, "duration", duration)
+			"response_status", res.status, "err", res.err, "duration_ms", duration.Milliseconds())
 	}
 }
 

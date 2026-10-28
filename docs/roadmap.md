@@ -22,8 +22,8 @@ shown at any point.
 ## M2: Delivery
 - [x] Standard Webhooks signing, tested against the official library's test vector (FR-13)
 - [x] SSRF-safe HTTP client (NFR-SEC-03, 04), and the blocked-IP check of FR-07
-- [ ] Worker: lease-based claiming, fencing, lease recovery (ADR 0003)
-- [ ] Backoff with jitter, `Retry-After`, `dead` state (FR-14, 15)
+- [x] Worker: lease-based claiming, fencing, lease recovery (ADR 0003)
+- [x] Backoff with jitter, `Retry-After`, `dead` state (FR-14, 15)
 - [ ] Attempts log and query endpoints (FR-16, 17)
 - [ ] Example receiver using the official Standard Webhooks library
 

@@ -50,5 +50,16 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  worker:
+    <<: *carteiro
+    command: ["work"]
+    # docker stop waits 10s by default before killing the process. A delivery
+    # can take up to CARTEIRO_DELIVERY_TIMEOUT (15s) to finish, so shutdown
+    # gets more time; anything still unfinished is recovered by its lease.
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:

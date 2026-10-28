@@ -38,7 +38,28 @@ type Config struct {
 	// ShutdownTimeout bounds how long in-flight requests get to finish after
 	// SIGINT or SIGTERM.
 	ShutdownTimeout time.Duration
+
+	// WorkerConcurrency is how many deliveries one worker sends at once.
+	WorkerConcurrency int
+	// DeliveryTimeout bounds each delivery's HTTP request. The lease is
+	// derived from it (ADR 0003).
+	DeliveryTimeout time.Duration
+	// PollInterval is how long an idle worker waits before checking the
+	// queue again.
+	PollInterval time.Duration
+	// RetryBase, RetryCap and MaxAttempts are the retry schedule (FR-14,
+	// FR-15; docs/architecture.md, "Retry schedule").
+	RetryBase   time.Duration
+	RetryCap    time.Duration
+	MaxAttempts int
 }
+
+// Bounds for the integer settings. They exist to catch typos, such as an
+// extra zero, before they reach production.
+const (
+	maxWorkerConcurrency = 1000
+	maxMaxAttempts       = 100
+)
 
 // minAdminTokenLen rejects tokens short enough to guess. 32 characters of a
 // random string such as `openssl rand -hex 32` output is far beyond that.
@@ -49,9 +70,15 @@ const minAdminTokenLen = 32
 // so a misconfigured deploy is fixed in one round instead of one per variable.
 func Load(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
-		HTTPAddr:        ":8080",
-		LogLevel:        slog.LevelInfo,
-		ShutdownTimeout: 15 * time.Second,
+		HTTPAddr:          ":8080",
+		LogLevel:          slog.LevelInfo,
+		ShutdownTimeout:   15 * time.Second,
+		WorkerConcurrency: 10,
+		DeliveryTimeout:   15 * time.Second,
+		PollInterval:      time.Second,
+		RetryBase:         30 * time.Second,
+		RetryCap:          6 * time.Hour,
+		MaxAttempts:       12,
 	}
 	var errs []error
 
@@ -108,16 +135,44 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		}
 	}
 
-	if v, ok := lookup("CARTEIRO_SHUTDOWN_TIMEOUT"); ok {
+	parseDuration := func(name string, dst *time.Duration) {
+		v, ok := lookup(name)
+		if !ok {
+			return
+		}
 		d, err := time.ParseDuration(v)
 		switch {
 		case err != nil:
-			errs = append(errs, fmt.Errorf("CARTEIRO_SHUTDOWN_TIMEOUT: %w", err))
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		case d <= 0:
-			errs = append(errs, fmt.Errorf("CARTEIRO_SHUTDOWN_TIMEOUT: must be positive, got %s", d))
+			errs = append(errs, fmt.Errorf("%s: must be positive, got %s", name, d))
 		default:
-			cfg.ShutdownTimeout = d
+			*dst = d
 		}
+	}
+	parseDuration("CARTEIRO_SHUTDOWN_TIMEOUT", &cfg.ShutdownTimeout)
+	parseDuration("CARTEIRO_DELIVERY_TIMEOUT", &cfg.DeliveryTimeout)
+	parseDuration("CARTEIRO_POLL_INTERVAL", &cfg.PollInterval)
+	parseDuration("CARTEIRO_RETRY_BASE", &cfg.RetryBase)
+	parseDuration("CARTEIRO_RETRY_CAP", &cfg.RetryCap)
+
+	parseInt := func(name string, dst *int, maxValue int) {
+		v, ok := lookup(name)
+		if !ok {
+			return
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxValue {
+			errs = append(errs, fmt.Errorf("%s: must be a whole number from 1 to %d, got %q", name, maxValue, v))
+			return
+		}
+		*dst = n
+	}
+	parseInt("CARTEIRO_WORKER_CONCURRENCY", &cfg.WorkerConcurrency, maxWorkerConcurrency)
+	parseInt("CARTEIRO_MAX_ATTEMPTS", &cfg.MaxAttempts, maxMaxAttempts)
+
+	if cfg.RetryCap < cfg.RetryBase {
+		errs = append(errs, fmt.Errorf("CARTEIRO_RETRY_CAP (%s) must not be less than CARTEIRO_RETRY_BASE (%s)", cfg.RetryCap, cfg.RetryBase))
 	}
 
 	return cfg, errors.Join(errs...)

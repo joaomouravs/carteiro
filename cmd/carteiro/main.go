@@ -3,6 +3,8 @@
 // Usage:
 //
 //	carteiro serve    run the HTTP API
+//	carteiro work     run the delivery worker
+//	carteiro all      run both in one process
 //	carteiro migrate  apply pending database migrations
 package main
 
@@ -18,13 +20,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/joaomouravs/carteiro/internal/api"
 	"github.com/joaomouravs/carteiro/internal/config"
 	"github.com/joaomouravs/carteiro/internal/crypto"
+	"github.com/joaomouravs/carteiro/internal/delivery"
+	"github.com/joaomouravs/carteiro/internal/netguard"
 	"github.com/joaomouravs/carteiro/internal/store"
 )
 
-const usage = "usage: carteiro <serve|migrate>"
+const usage = "usage: carteiro <serve|work|all|migrate>"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -51,7 +57,11 @@ func run(args []string) error {
 
 	switch args[0] {
 	case "serve":
-		return serve(ctx, stop, cfg, logger)
+		return start(ctx, stop, cfg, logger, roles{api: true})
+	case "work":
+		return start(ctx, stop, cfg, logger, roles{worker: true})
+	case "all":
+		return start(ctx, stop, cfg, logger, roles{api: true, worker: true})
 	case "migrate":
 		// Migrations run as a separate step, not on every serve, so a deploy
 		// applies them once, before any new instance starts taking traffic.
@@ -61,7 +71,12 @@ func run(args []string) error {
 	}
 }
 
-func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logger *slog.Logger) error {
+// roles says which parts of Carteiro a process runs.
+type roles struct{ api, worker bool }
+
+// start opens what every role shares, the database pool and the cipher, and
+// runs the given roles until ctx is cancelled.
+func start(ctx context.Context, stop context.CancelFunc, cfg config.Config, logger *slog.Logger, r roles) error {
 	cipher, err := crypto.NewCipher(cfg.EncryptionKey)
 	if err != nil {
 		return err
@@ -75,9 +90,45 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 		logger.Warn("plain-http endpoint URLs are allowed; use only for local development")
 	}
 	if cfg.AllowPrivateNetworks {
-		logger.Warn("endpoints on loopback and private networks are allowed; use only for local development")
+		logger.Warn("loopback and private networks are reachable; use only for local development")
 	}
 
+	if !r.worker {
+		return serve(ctx, stop, cfg, logger, pool, cipher)
+	}
+	w := delivery.New(logger, pool, cipher, delivery.Options{
+		Concurrency:  cfg.WorkerConcurrency,
+		Timeout:      cfg.DeliveryTimeout,
+		PollInterval: cfg.PollInterval,
+		Backoff:      delivery.Backoff{Base: cfg.RetryBase, Cap: cfg.RetryCap, MaxAttempts: cfg.MaxAttempts},
+		NetPolicy:    netguard.Policy{AllowPrivateNetworks: cfg.AllowPrivateNetworks},
+	})
+	if !r.api {
+		// As in serveUntilDone: once shutdown starts, a second Ctrl+C kills
+		// the process instead of waiting for in-flight deliveries.
+		context.AfterFunc(ctx, stop)
+		logger.Info("worker started", "concurrency", cfg.WorkerConcurrency)
+		err := w.Run(ctx)
+		logger.Info("worker stopped")
+		return err
+	}
+
+	// Both roles. If the API fails (its port is taken, say), the worker
+	// stops too, rather than leave a process that looks half alive.
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	workerDone := make(chan error, 1)
+	go func() { workerDone <- w.Run(workerCtx) }()
+	logger.Info("worker started", "concurrency", cfg.WorkerConcurrency)
+
+	apiErr := serve(ctx, stop, cfg, logger, pool, cipher)
+	cancelWorker()
+	workerErr := <-workerDone
+	logger.Info("worker stopped")
+	return errors.Join(apiErr, workerErr)
+}
+
+// serve runs the HTTP API until ctx is cancelled.
+func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool, cipher *crypto.Cipher) error {
 	srv := &http.Server{
 		Handler: api.New(logger, pool, api.Options{
 			AdminToken:           cfg.AdminToken,

@@ -40,10 +40,10 @@ tasks:
       - go run ./cmd/carteiro migrate
 
   run:
-    desc: Run the API against the local database
+    desc: Run the API and the worker against the local database
     deps: [migrate]
     cmds:
-      - go run ./cmd/carteiro serve
+      - go run ./cmd/carteiro all
 
   sqlc:
     desc: Generate Go code from the SQL queries
@@ -74,6 +74,21 @@ tasks:
     desc: Run all tests with the race detector (needs cgo and a C compiler; CI runs it on Linux)
     cmds:
       - go test -race ./...
+
+  test:race:docker:
+    desc: Run all tests with the race detector in a Linux container (no local C compiler needed)
+    # The container reaches the host Docker daemon through its socket, so
+    # Testcontainers can start PostgreSQL next to it. Ryuk, its cleanup
+    # sidecar, is off because it cannot reach back into this container;
+    # testdb terminates the database itself.
+    cmds:
+      - >-
+        docker run --rm -v "{{.ROOT_DIR}}:/src" -w /src
+        -v /var/run/docker.sock:/var/run/docker.sock
+        -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal
+        -e TESTCONTAINERS_RYUK_DISABLED=true
+        -e CGO_ENABLED=1
+        golang:1.27.3 go test -race -count=1 ./...
 
   lint:
     desc: Run golangci-lint

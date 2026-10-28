@@ -1,9 +1,9 @@
-| `CARTEIRO_ALLOW_PRIVATE_NETWORKS` | `false` | Let endpoints and deliveries reach loopback and private addresses (link-local and cloud metadata stay blocked); development only |
 # Carteiro
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** M1 (ingest API) done: events are accepted and queued. Delivery (M2) is next. See the [roadmap](docs/roadmap.md).
+**Status:** M2 (delivery) in progress: events are signed, delivered, retried with backoff and
+recorded. Querying attempts and the example receiver are next. See the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -24,7 +24,7 @@ so you can inspect and replay what went wrong.
 Requirements: Docker. For development, also Go 1.27 and
 [Task](https://taskfile.dev) (`go install github.com/go-task/task/v3/cmd/task@latest`).
 
-Run the whole stack (PostgreSQL, migrations, API) with one command:
+Run the whole stack (PostgreSQL, migrations, API, worker) with one command:
 
 ```sh
 docker compose -f deploy/compose.yaml up --build
@@ -35,9 +35,10 @@ Development workflow:
 
 ```sh
 cp .env.example .env
-task run        # start PostgreSQL, apply migrations, run the API with go run
+task run        # start PostgreSQL, apply migrations, run the API and the worker with go run
 task test       # unit and integration tests (integration tests start PostgreSQL in Docker)
 task test:unit  # only the fast tests
+task test:race:docker  # all tests with the race detector, inside a Linux container
 task lint       # golangci-lint
 task sqlc       # regenerate Go code after changing a query or a migration
 ```
@@ -53,9 +54,16 @@ installation and use the same versions as CI.
 | `CARTEIRO_ADMIN_TOKEN` | (required) | Operator token, at least 32 characters (`openssl rand -hex 32`) |
 | `CARTEIRO_ENCRYPTION_KEY` | (required) | Base64 of 32 bytes (`openssl rand -base64 32`); encrypts endpoint secrets |
 | `CARTEIRO_ALLOW_HTTP_ENDPOINTS` | `false` | Accept `http://` endpoint URLs; development only |
+| `CARTEIRO_ALLOW_PRIVATE_NETWORKS` | `false` | Let endpoints and deliveries reach loopback and private addresses (link-local and cloud metadata stay blocked); development only |
 | `CARTEIRO_HTTP_ADDR` | `:8080` | Address the API listens on |
 | `CARTEIRO_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `CARTEIRO_SHUTDOWN_TIMEOUT` | `15s` | Time in-flight requests get to finish on shutdown |
+| `CARTEIRO_WORKER_CONCURRENCY` | `10` | Deliveries one worker sends at once (1 to 1000) |
+| `CARTEIRO_DELIVERY_TIMEOUT` | `15s` | Limit for each delivery request; the lease is this plus 30s |
+| `CARTEIRO_POLL_INTERVAL` | `1s` | How long an idle worker waits before checking the queue again |
+| `CARTEIRO_RETRY_BASE` | `30s` | First retry delay ceiling; it doubles after each failure |
+| `CARTEIRO_RETRY_CAP` | `6h` | Longest wait between two attempts |
+| `CARTEIRO_MAX_ATTEMPTS` | `12` | Attempts before a delivery is marked `dead` (1 to 100) |
 
 ## API
 

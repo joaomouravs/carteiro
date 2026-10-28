@@ -49,6 +49,28 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.HTTPAddr != ":8080" || cfg.LogLevel != slog.LevelInfo || cfg.ShutdownTimeout != 15*time.Second || cfg.AllowHTTPEndpoints || cfg.AllowPrivateNetworks {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
+	if cfg.WorkerConcurrency != 10 || cfg.DeliveryTimeout != 15*time.Second || cfg.PollInterval != time.Second ||
+		cfg.RetryBase != 30*time.Second || cfg.RetryCap != 6*time.Hour || cfg.MaxAttempts != 12 {
+		t.Errorf("unexpected worker defaults: %+v", cfg)
+	}
+}
+
+func TestLoadWorkerOverrides(t *testing.T) {
+	cfg, err := Load(mapLookup(withRequired(map[string]string{
+		"CARTEIRO_WORKER_CONCURRENCY": "50",
+		"CARTEIRO_DELIVERY_TIMEOUT":   "5s",
+		"CARTEIRO_POLL_INTERVAL":      "250ms",
+		"CARTEIRO_RETRY_BASE":         "1m",
+		"CARTEIRO_RETRY_CAP":          "1h",
+		"CARTEIRO_MAX_ATTEMPTS":       "5",
+	})))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.WorkerConcurrency != 50 || cfg.DeliveryTimeout != 5*time.Second || cfg.PollInterval != 250*time.Millisecond ||
+		cfg.RetryBase != time.Minute || cfg.RetryCap != time.Hour || cfg.MaxAttempts != 5 {
+		t.Errorf("overrides not applied: %+v", cfg)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -89,6 +111,12 @@ func TestLoadInvalid(t *testing.T) {
 		{"allow private not a bool", withRequired(map[string]string{"CARTEIRO_ALLOW_PRIVATE_NETWORKS": "yes please"}), []string{"CARTEIRO_ALLOW_PRIVATE_NETWORKS"}},
 		{"address without port", withRequired(map[string]string{"CARTEIRO_HTTP_ADDR": "localhost"}), []string{"CARTEIRO_HTTP_ADDR"}},
 		{"non-positive timeout", withRequired(map[string]string{"CARTEIRO_SHUTDOWN_TIMEOUT": "0s"}), []string{"must be positive"}},
+		{"delivery timeout without unit", withRequired(map[string]string{"CARTEIRO_DELIVERY_TIMEOUT": "15"}), []string{"CARTEIRO_DELIVERY_TIMEOUT"}},
+		{"negative poll interval", withRequired(map[string]string{"CARTEIRO_POLL_INTERVAL": "-1s"}), []string{"CARTEIRO_POLL_INTERVAL: must be positive"}},
+		{"zero concurrency", withRequired(map[string]string{"CARTEIRO_WORKER_CONCURRENCY": "0"}), []string{"CARTEIRO_WORKER_CONCURRENCY: must be a whole number from 1 to 1000"}},
+		{"concurrency with a typo", withRequired(map[string]string{"CARTEIRO_WORKER_CONCURRENCY": "100000"}), []string{"CARTEIRO_WORKER_CONCURRENCY"}},
+		{"max attempts not a number", withRequired(map[string]string{"CARTEIRO_MAX_ATTEMPTS": "twelve"}), []string{"CARTEIRO_MAX_ATTEMPTS"}},
+		{"cap below base", withRequired(map[string]string{"CARTEIRO_RETRY_BASE": "1h", "CARTEIRO_RETRY_CAP": "30m"}), []string{"CARTEIRO_RETRY_CAP (30m0s) must not be less than CARTEIRO_RETRY_BASE (1h0m0s)"}},
 		{
 			name: "every error reported at once",
 			env: map[string]string{
