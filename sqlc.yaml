@@ -1,0 +1,32 @@
+# sqlc generates type-safe Go from the SQL in internal/store/queries.
+# Run `task sqlc` after changing a query or a migration; CI fails if the
+# generated code is out of date.
+version: "2"
+sql:
+  - engine: postgresql
+    # sqlc reads goose migrations and ignores their Down sections.
+    schema: migrations
+    queries: internal/store/queries
+    gen:
+      go:
+        package: store
+        out: internal/store
+        sql_package: pgx/v5
+        output_db_file_name: db.gen.go
+        output_models_file_name: models.gen.go
+        output_files_suffix: .gen
+        emit_pointers_for_null_types: true
+        # Go initialisms: APIKey and URL, not ApiKey and Url.
+        rename:
+          api_key: APIKey
+          url: URL
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true

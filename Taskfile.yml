@@ -6,6 +6,9 @@ dotenv: [".env"]
 
 vars:
   COMPOSE: docker compose -f deploy/compose.yaml
+  # sqlc's PostgreSQL parser needs cgo, so it runs from its official image
+  # instead of being installed. The version is pinned to keep output stable.
+  SQLC: docker run --rm -v "{{.ROOT_DIR}}:/src" -w /src sqlc/sqlc:1.31.1
 
 tasks:
   default:
@@ -28,11 +31,27 @@ tasks:
     cmds:
       - "{{.COMPOSE}} down --volumes"
 
-  run:
-    desc: Run the API against the local database
+  migrate:
+    desc: Apply pending migrations to the local database
     deps: [db:up]
     cmds:
+      - go run ./cmd/carteiro migrate
+
+  run:
+    desc: Run the API against the local database
+    deps: [migrate]
+    cmds:
       - go run ./cmd/carteiro serve
+
+  sqlc:
+    desc: Generate Go code from the SQL queries
+    cmds:
+      - "{{.SQLC}} generate"
+
+  sqlc:check:
+    desc: Fail if the generated code is out of date
+    cmds:
+      - "{{.SQLC}} diff"
 
   build:
     desc: Build the binary into bin/
@@ -40,9 +59,14 @@ tasks:
       - go build -o bin/carteiro{{exeExt}} ./cmd/carteiro
 
   test:
-    desc: Run all tests
+    desc: Run all tests, including integration tests (needs Docker)
     cmds:
       - go test ./...
+
+  test:unit:
+    desc: Run only the fast tests, skipping the ones that need PostgreSQL
+    cmds:
+      - go test -short ./...
 
   test:race:
     desc: Run all tests with the race detector (needs cgo and a C compiler; CI runs it on Linux)

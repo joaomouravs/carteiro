@@ -3,6 +3,7 @@
 // Usage:
 //
 //	carteiro serve    run the HTTP API
+//	carteiro migrate  apply pending database migrations
 package main
 
 import (
@@ -21,7 +22,7 @@ import (
 	"github.com/joaomouravs/carteiro/internal/store"
 )
 
-const usage = "usage: carteiro <serve>"
+const usage = "usage: carteiro <serve|migrate>"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -49,6 +50,10 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return serve(ctx, stop, cfg, logger)
+	case "migrate":
+		// Migrations run as a separate step, not on every serve, so a deploy
+		// applies them once, before any new instance starts taking traffic.
+		return store.Migrate(ctx, cfg.DatabaseURL, logger)
 	default:
 		return fmt.Errorf("unknown command %q\n%s", args[0], usage)
 	}
