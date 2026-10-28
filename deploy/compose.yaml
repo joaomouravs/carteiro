@@ -57,8 +57,8 @@ services:
     <<: *carteiro
     command: ["work"]
     # docker stop waits 10s by default before killing the process. A delivery
-    # can take up to CARTEIRO_DELIVERY_TIMEOUT (15s) to finish, so shutdown
-    # gets more time; anything still unfinished is recovered by its lease.
+    # can take up to CARTEIRO_DELIVERY_TIMEOUT (15s) to finish, so I give
+    # shutdown more time; anything still unfinished comes back by its lease.
     stop_grace_period: 30s
     depends_on:
       migrate:
@@ -108,8 +108,8 @@ services:
       - ../loadtest:/scripts:ro
     entrypoint: ["k6"]
 
-  # Metrics and the dashboard, only with --profile observability: they are
-  # two more images, not needed to run Carteiro.
+  # Prometheus and Grafana, only with --profile observability: two more
+  # images that Carteiro does not need to run.
   prometheus:
     profiles: [observability]
     image: prom/prometheus:v3.15.0

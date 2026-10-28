@@ -5,29 +5,30 @@
 
 ## Context
 
-Producers need a UI to do what the API already allows: follow an event down to each HTTP
-attempt, replay what failed, enable an endpoint again, and rotate its secret. Two shapes
-were considered:
+Producers need a UI for what the API already does: follow an event down to each HTTP
+attempt, replay what failed, enable an endpoint again, rotate its secret. I weighed two
+ways to build it:
 
-- **Server-rendered Go templates with htmx**, inside the Carteiro binary. One artifact to
-  deploy, no JavaScript build, and the UI could read the database directly.
-- **A separate Next.js app** that talks to Carteiro only through its public HTTP API.
+- **Go templates with htmx**, rendered inside the Carteiro binary. One artifact to deploy,
+  no JavaScript build, and the UI could read the database directly.
+- **A separate Next.js app** that only talks to Carteiro through its public HTTP API.
 
 ## Decision
 
-A separate Next.js app in `dashboard/`, using only the public API, chosen by the project
-owner. Next.js is the stack the owner works in, and the project should show the
-integration between a front end and this back end, not only the back end.
+I went with a separate Next.js app in `dashboard/`, using only the public API. Next.js is
+what I use day to day, and I wanted the project to show a front end working with this
+back end, not only the back end.
 
-- The API key lives in an encrypted, `httpOnly` session cookie. Every call to Carteiro is
-  made by the Next.js server (server components, server actions), so the key never reaches
-  browser JavaScript, and Carteiro needs no CORS.
-- The dashboard has no database and no privileged access: anything it shows or does, a
+- The API key lives in an encrypted, `httpOnly` session cookie. Every call to Carteiro
+  comes from the Next.js server (server components and server actions), so the key never
+  reaches browser JavaScript and Carteiro does not need CORS.
+- The dashboard has no database and no special access. Anything it shows or does, a
   producer could do with `curl` and the same key.
 
 ## Consequences
 
-- Two deployables instead of one; Carteiro itself stays a single binary with no UI code.
-- The dashboard is a client of the API like any other, so a gap in the API shows up as a
-  gap in the dashboard instead of being papered over with a direct database query.
-- It is an independent project with its own toolchain (Node.js, npm) and its own CI job.
+- Two things to deploy instead of one, but Carteiro itself stays a single binary with no
+  UI code in it.
+- The dashboard is just another API client, so if the API is missing something, the
+  dashboard is missing it too, instead of hiding the gap behind a direct database query.
+- It is a separate project with its own toolchain (Node.js and npm) and its own CI job.

@@ -11,9 +11,9 @@ package netguard
 import "net/netip"
 
 // blockedPrefixes is the deny list from docs/architecture.md, "Outbound
-// network safety". It is written out instead of built from netip.Addr helpers
-// such as IsPrivate, because none of those covers carrier-grade NAT or
-// "this network", and a reviewer can check a literal list against the doc.
+// network safety". I wrote it out instead of building it from netip.Addr
+// helpers such as IsPrivate: none of those covers carrier-grade NAT or
+// "this network", and a literal list is easy to check against the doc.
 var blockedPrefixes = []netip.Prefix{
 	// IPv4.
 	netip.MustParsePrefix("0.0.0.0/8"),          // "this network", includes unspecified

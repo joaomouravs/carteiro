@@ -73,7 +73,7 @@ DELETE FROM endpoint_secrets WHERE expires_at <= now()
 `
 
 // PurgeExpiredSecrets deletes secrets whose rotation grace period is over:
-// nothing is signed with them again. There are few, so no batching.
+// nothing is signed with them again. There are few, so I don't batch these.
 func (q *Queries) PurgeExpiredSecrets(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeExpiredSecrets)
 	if err != nil {
@@ -97,8 +97,8 @@ SELECT pg_try_advisory_lock(483006768997) AS locked
 
 // TryPurgeLock takes a session-level advisory lock, so only one process
 // purges at a time; the others skip the round. PostgreSQL releases it when
-// the session ends, so a crashed purger cannot hold it forever. The key is
-// arbitrary but fixed: the bytes of "purge" as an integer.
+// the session ends, so a crashed purger cannot hold it forever. Any fixed
+// number works as the key; I used the bytes of "purge" as an integer.
 func (q *Queries) TryPurgeLock(ctx context.Context) (bool, error) {
 	row := q.db.QueryRow(ctx, tryPurgeLock)
 	var locked bool

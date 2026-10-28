@@ -66,7 +66,7 @@ func (p Policy) control(network, address string, _ syscall.RawConn) error {
 	}
 	ap, err := netip.ParseAddrPort(address)
 	if err != nil {
-		// Fail closed: an address we cannot read is not one we can vouch for.
+		// Fail closed: if the address does not parse, it cannot be vouched for.
 		return fmt.Errorf("%w: unparsable address %q", ErrBlocked, address)
 	}
 	if !p.Allows(ap.Addr()) {

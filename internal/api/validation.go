@@ -66,11 +66,12 @@ func (s *Server) validateEndpointURL(ctx context.Context, raw string) (string, [
 	defer cancel()
 	addrs, err := s.resolver.LookupNetIP(ctx, "ip", u.Hostname())
 	if err != nil {
-		// A host that does not resolve yet is accepted. Receivers are often
-		// configured before their DNS exists: the endpoint's secret is
-		// needed to deploy the receiver, and only creating the endpoint
-		// returns it. Nothing is lost, since the dialer checks the address
-		// it actually connects to, and a typo shows up as failed attempts.
+		// I accept a host that does not resolve yet. I rejected these at
+		// first, until the end-to-end demo got stuck on it: the receiver
+		// needs the endpoint's secret to start, and only creating the
+		// endpoint returns it, so the receiver's host cannot exist yet.
+		// Nothing is lost, since the dialer checks the address it actually
+		// connects to, and a typo shows up as failed attempts.
 		return u.String(), nil
 	}
 	// Every address must be allowed, not just one: a hostname can resolve to

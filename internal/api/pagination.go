@@ -28,7 +28,7 @@ type pageRequest struct {
 	limit  int
 }
 
-// parsePage reads the pagination query parameters. Pagination is by cursor,
+// parsePage reads the pagination query parameters. I paginate by cursor,
 // not by offset: OFFSET makes the database walk and discard every skipped
 // row, and rows inserted while a client pages through make it skip or
 // repeat items. A cursor is a position, so neither happens.

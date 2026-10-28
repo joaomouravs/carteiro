@@ -15,9 +15,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/carteiro ./cmd/carteiro
 
-# Runtime stage: distroless has CA certificates (needed for HTTPS deliveries)
-# and time zone data, but no shell or package manager to exploit, and runs as
-# an unprivileged user.
+# Runtime stage: I went with distroless. It has CA certificates (needed for
+# HTTPS deliveries) and time zone data, no shell or package manager to exploit,
+# and runs as an unprivileged user.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/carteiro /carteiro
 EXPOSE 8080

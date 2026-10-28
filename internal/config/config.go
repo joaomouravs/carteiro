@@ -67,7 +67,7 @@ type Config struct {
 	Retention time.Duration
 }
 
-// Bounds for the integer settings. They exist to catch typos, such as an
+// Bounds for the integer settings. I added them to catch typos, such as an
 // extra zero, before they reach production.
 const (
 	maxWorkerConcurrency  = 1000

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs throughput.sh over a matrix of worker and endpoint counts, REPS times
-# each, and prints a Markdown table of the median, minimum and maximum. The
-# median and the range, not the mean: one slow run must not hide, and must not
-# be hidden by, the others (an earlier lock convoy showed up as runs of either
+# each, and prints a Markdown table of the median, minimum and maximum. I
+# report the median and the range, not the mean: one slow run must not hide, and
+# must not be hidden by, the others (an earlier lock convoy showed up as runs of either
 # about 450 or about 1,400 deliveries/s for the same setup).
 #
 # Usage: WORKERS_LIST="1 2 4 8" ENDPOINTS_LIST="1 16" REPS=3 DELIVERIES=20000 loadtest/matrix.sh

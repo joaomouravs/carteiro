@@ -1,10 +1,10 @@
 -- Initial schema. See docs/architecture.md for the data model.
 --
--- Conventions:
+-- Conventions I follow:
 -- * Primary keys are UUIDv7 (native in PostgreSQL 18): globally unique like
---   random UUIDs, but time-ordered, so inserts append to the end of the B-tree
+--   random UUIDs, but time-ordered, so inserts go to the end of the B-tree
 --   index instead of landing on random pages.
--- * Statuses are text with CHECK constraints rather than enum types: changing
+-- * I store statuses as text with CHECK constraints, not enum types: changing
 --   an enum (removing or renaming a value) is awkward in a migration, while a
 --   CHECK constraint is dropped and recreated in one statement.
 -- * Every timestamp is timestamptz, stored in UTC.
@@ -108,7 +108,7 @@ CREATE TABLE deliveries (
     updated_at       timestamptz NOT NULL DEFAULT now(),
 
     UNIQUE (event_id, endpoint_id),
-    -- State invariants, enforced by the database rather than trusted to code:
+    -- I let the database enforce the state invariants instead of trusting the code:
     -- a delivery holds a lease exactly while it is in flight, and a pending
     -- delivery always knows when to run.
     CHECK ((status = 'in_flight') = (lease_expires_at IS NOT NULL)),

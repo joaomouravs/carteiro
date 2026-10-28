@@ -1,7 +1,8 @@
 # Roadmap
 
-Each milestone ends in a working, tested, documented state, so the repository can be
-shown at any point.
+I split the work into milestones, each ending in a state that works, is tested and is
+documented, so the repository could be shown at any point along the way. All of them are
+done.
 
 ## M0: Foundation
 - [x] Go module, project layout, `Taskfile` (cross-platform, unlike `make`)
@@ -15,7 +16,7 @@ shown at any point.
 ## M1: Ingest
 - [x] Admin token; applications; API key issue and revoke (FR-01–03)
 - [x] Endpoints CRUD with URL validation; secret generation and encryption at rest (FR-04, 05, 07).
-  The blocked-IP part of FR-07 lands with `netguard` in M2.
+  The blocked-IP part of FR-07 came with `netguard` in M2.
 - [x] `POST /v1/events` with idempotency and fan-out (FR-10–12)
 - [x] Problem+json errors (RFC 9457), cursor pagination
 

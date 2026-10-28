@@ -4,36 +4,40 @@
 
 [![CI](https://github.com/joaomouravs/carteiro/actions/workflows/ci.yml/badge.svg)](https://github.com/joaomouravs/carteiro/actions/workflows/ci.yml)
 
-Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
-plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
-signs it with the [Standard Webhooks](https://www.standardwebhooks.com/) spec, retries
-with exponential backoff, disables endpoints that keep failing, and records every attempt
-so you can inspect and replay what went wrong.
+Carteiro (Portuguese for *mail carrier*) is a webhook delivery service you can host
+yourself. Your application publishes an event once, and Carteiro takes it from there: it
+fans the event out to every subscribed endpoint, signs it with the
+[Standard Webhooks](https://www.standardwebhooks.com/) spec, retries with exponential
+backoff, disables endpoints that keep failing, and records every attempt so you can see
+and replay what went wrong.
+
+I built it to learn and to show how I work on the back end: decisions written down as
+ADRs, tests against a real database, and numbers measured instead of assumed.
 
 ![The dashboard: events, an event's deliveries, a failing delivery's attempts, and endpoint health](docs/img/dashboard.gif)
 
 ## Engineering highlights
 
 - **PostgreSQL is the queue.** Workers claim deliveries with `FOR UPDATE SKIP LOCKED` and
-  a short lease, then send with no transaction open; `attempt_count` is a fencing token,
-  so a worker that lost its lease cannot overwrite a newer result
+  a short lease, then send them with no transaction open. `attempt_count` works as a
+  fencing token, so a worker that lost its lease cannot overwrite a newer result
   ([ADR 0001](docs/adr/0001-postgres-as-queue.md), [ADR 0003](docs/adr/0003-lease-based-claiming.md)).
-  A test claims 200 deliveries with 8 workers at once; without `SKIP LOCKED` it sees over
-  200 duplicates.
-- **Killing a worker loses nothing.** [`crash.sh`](loadtest/crash.sh) sends `SIGKILL` to
-  a worker halfway through 20,000 deliveries: all of them arrive, and the ones it held
-  come back when their lease expires.
-- **Measured, then fixed.** Load testing showed throughput flipping between about 450 and
-  1,400 deliveries/s for the same setup: a lock convoy on the endpoint row, held across
-  every commit's fsync. [How it was found and fixed](docs/performance.md).
+  One of my tests has 8 workers claim 200 deliveries at once; when I took `SKIP LOCKED`
+  out, it saw over 200 duplicates.
+- **Killing a worker loses nothing.** [`crash.sh`](loadtest/crash.sh) sends `SIGKILL` to a
+  worker halfway through 20,000 deliveries. All of them still arrive, and the ones it was
+  holding come back when their lease expires.
+- **Measured, then fixed.** Load testing showed throughput jumping between about 450 and
+  1,400 deliveries per second for the same setup. It turned out to be a lock convoy on the
+  endpoint row, held across every commit's fsync. [How I found and fixed it](docs/performance.md).
 - **SSRF-safe by construction.** The guard runs in the dialer, on the address each
-  connection is about to use, so DNS rebinding cannot bypass it; IPv4 hidden in IPv6
-  (`::ffff:`, NAT64) is unwrapped first, and redirects are not followed.
-- **Compatible, and proven so.** Deliveries follow Standard Webhooks; the example
+  connection is about to use, so DNS rebinding cannot get around it. IPv4 hidden inside
+  IPv6 (`::ffff:`, NAT64) is unwrapped first, and redirects are never followed.
+- **Compatible, and proven so.** Deliveries follow Standard Webhooks. The example
   receiver's tests sign with Carteiro's code and verify with the official library, in CI.
 - **The dashboard never hands the API key to the browser.** It is a separate Next.js app
-  on the public API; the key stays on its server in an encrypted `httpOnly` cookie, and a
-  build that imports the API client into a client component fails
+  that only uses the public API. The key stays on its server in an encrypted `httpOnly`
+  cookie, and if anyone imports the API client into a client component, the build fails
   ([ADR 0007](docs/adr/0007-dashboard-as-a-separate-nextjs-app.md)).
 
 ## How it works
@@ -50,28 +54,30 @@ flowchart LR
     D[Dashboard] -- "public API" --> API
 ```
 
-Publishing stores the event and one delivery per subscribed endpoint in one transaction,
-so an accepted event can never be lost before it is queued. Workers can run anywhere,
-any number of them, against the same database. More in [architecture](docs/architecture.md).
+Publishing stores the event and one delivery per subscribed endpoint in a single
+transaction, so an event that was accepted can never get lost before it is queued. Workers
+can run anywhere, as many as you want, against the same database. The
+[architecture](docs/architecture.md) doc goes through each piece.
 
 ## Guarantees
 
-- **At-least-once delivery.** An accepted event is never lost, even if a worker crashes
-  mid-delivery. Receivers should deduplicate using the `webhook-id` header.
-- **No ordering guarantee.** One failing event never blocks the others.
-- **No transaction held across network calls.** Workers claim deliveries with short
-  leases, so slow receivers cannot exhaust the database.
+- **At-least-once delivery.** An accepted event is never lost, even if a worker crashes in
+  the middle of sending it. Receivers should deduplicate with the `webhook-id` header.
+- **No ordering guarantee.** One failing event never holds up the others.
+- **No transaction open across network calls.** Workers claim deliveries with short
+  leases, so slow receivers cannot tie up the database.
 
 ## Performance
 
-Measured on a GitHub-hosted runner with the [Load test workflow](.github/workflows/loadtest.yml),
-which anyone can run again ([method, all numbers, and the bottleneck](docs/performance.md)):
+I measured these on a GitHub-hosted runner with the
+[Load test workflow](.github/workflows/loadtest.yml), which anyone can run again
+([method, every number, and the bottleneck](docs/performance.md)):
 
 | | Result | Target |
 |---|---|---|
-| Delivery throughput, 4 workers | **1,549 deliveries/s** (was 938 before the lock convoy fix) | 500/s (NFR-PERF-02) |
+| Delivery throughput, 4 workers | **1,549 deliveries/s** (938 before the lock convoy fix) | 500/s (NFR-PERF-02) |
 | Ingest latency at 200 events/s | **p99 3.54 ms**, no errors in 12,001 requests | p99 < 50 ms (NFR-PERF-01) |
-| Worker killed with `SIGKILL` mid-run | **every delivery arrives**; the ones it held come back after their lease (measured on the development laptop; the workflow now runs it too) | NFR-REL-01 |
+| Worker killed with `SIGKILL` mid-run | **every delivery arrives**; the ones it held come back after their lease (measured on my laptop; the workflow runs it too now) | NFR-REL-01 |
 
 ## Running locally
 
@@ -111,8 +117,8 @@ installation and use the same versions as CI.
 
 [`examples/receiver`](examples/receiver/main.go) is a receiver that verifies webhooks
 with the official Standard Webhooks library and deduplicates them by `webhook-id`. Its
-tests sign with Carteiro's code and verify with that library, which is the proof that
-the two agree. To watch a webhook travel through the stack:
+tests sign with Carteiro's code and verify with that library, which is how I know the two
+agree. To watch a webhook go through the whole stack:
 
 ```sh
 docker compose -f deploy/compose.yaml up -d --build --wait

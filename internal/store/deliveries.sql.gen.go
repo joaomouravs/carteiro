@@ -44,7 +44,7 @@ type ClaimDueDeliveriesRow struct {
 	AttemptCount int32
 }
 
-// The delivery queue (ADR 0001, ADR 0003). Every time is computed with the
+// The delivery queue (ADR 0001, ADR 0003). I compute every time with the
 // database's now(), never the worker's clock: workers on different machines
 // then agree on what "due" and "expired" mean even if their clocks drift.
 // Durations arrive as milliseconds and become intervals here.

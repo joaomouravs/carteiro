@@ -49,8 +49,8 @@ func (b Backoff) next(attempt int, retryAfter time.Duration, int64n func(int64) 
 // delay applies equal jitter to the ceiling: a random duration in
 // [ceiling/2, ceiling]. Jitter spreads out the retries of deliveries that
 // failed together, so a receiver coming back from an outage is not hit by all
-// of them at the same instant. Keeping the lower half fixed guarantees a
-// minimum wait; "full jitter", in [0, ceiling], can retry almost at once.
+// of them at the same instant. I keep the lower half fixed so there is always
+// a minimum wait; "full jitter", in [0, ceiling], can retry almost at once.
 func (b Backoff) delay(attempt int, int64n func(int64) int64) time.Duration {
 	c := b.ceiling(attempt)
 	half := c / 2

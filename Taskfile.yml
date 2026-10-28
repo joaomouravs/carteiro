@@ -1,5 +1,5 @@
 # Task runner: https://taskfile.dev (go install github.com/go-task/task/v3/cmd/task@latest)
-# Chosen over make because it works the same on Windows, macOS and Linux.
+# I use Task instead of make because it works the same on Windows, macOS and Linux.
 version: "3"
 
 dotenv: [".env"]
@@ -7,7 +7,7 @@ dotenv: [".env"]
 vars:
   COMPOSE: docker compose -f deploy/compose.yaml
   # sqlc's PostgreSQL parser needs cgo, so it runs from its official image
-  # instead of being installed. The version is pinned to keep output stable.
+  # instead of being installed. I pin the version so the output stays stable.
   SQLC: docker run --rm -v "{{.ROOT_DIR}}:/src" -w /src sqlc/sqlc:1.31.1
   # Same version as CI (.github/workflows/ci.yml).
   LINT: docker run --rm -v "{{.ROOT_DIR}}:/src" -w /src golangci/golangci-lint:v2.15.0 golangci-lint

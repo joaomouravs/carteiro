@@ -63,9 +63,9 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci --no-audit --no-fund
-      # Fails on a known high or critical vulnerability in what ships. This
-      # is how Next.js 16.4.0's remote code execution advisories would have
-      # been caught.
+      # Fails on a known high or critical vulnerability in what ships. I added
+      # it after Next.js 16.4.0's remote code execution advisories, which this
+      # check would have caught.
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - run: npm run lint

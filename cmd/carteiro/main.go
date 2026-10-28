@@ -69,7 +69,7 @@ func run(args []string) error {
 	case "all":
 		return start(ctx, stop, cfg, logger, roles{api: true, worker: true})
 	case "migrate":
-		// Migrations run as a separate step, not on every serve, so a deploy
+		// I run migrations as their own step, not on every serve, so a deploy
 		// applies them once, before any new instance starts taking traffic.
 		return store.Migrate(ctx, cfg.DatabaseURL, logger)
 	default:

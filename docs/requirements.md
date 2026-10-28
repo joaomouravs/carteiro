@@ -2,16 +2,17 @@
 
 ## Problem
 
-Any product that emits webhooks has to solve the same set of problems: retrying failed
-deliveries, signing payloads so receivers can trust them, letting operators inspect and
-replay what went wrong, and not hammering endpoints that are down. Most teams solve this
-ad hoc, inside their main application, and the result is lost events, duplicated events,
-and no visibility.
+Any product that sends webhooks runs into the same problems: retrying failed deliveries,
+signing payloads so receivers can trust them, letting someone see and replay what went
+wrong, and not hammering an endpoint that is down. Most teams handle this ad hoc, inside
+their main application, and end up with lost events, duplicated events and no idea of
+what happened to them.
 
-Carteiro is a self-hostable service that takes over that responsibility. A producer
-system sends an event to Carteiro once; Carteiro fans it out to every subscribed
-endpoint, signs it, retries it, records every attempt, and exposes the state of every
-delivery through an API.
+I built Carteiro to take that job over as a service anyone can host. A producer sends an
+event to Carteiro once; Carteiro fans it out to every subscribed endpoint, signs it,
+retries it, records every attempt, and shows the state of every delivery through an API.
+I wrote these requirements before writing any code, and the IDs (FR-xx, NFR-xx) are what
+the code, the tests and the ADRs refer to.
 
 ## Actors
 
@@ -112,7 +113,7 @@ delivery through an API.
 
 ## Out of scope
 
-These are deliberate non-goals, documented so the scope stays honest:
+Things I chose not to build, written down so the scope stays honest:
 
 - Exactly-once delivery or ordering guarantees.
 - A customer-facing portal for the producer's own customers.

@@ -53,11 +53,11 @@ RETURNING *;
 -- Endpoint health (FR-08), written by the worker in the same transaction as
 -- each attempt.
 
--- Health is written in two queries, not one, for throughput. Every attempt
+-- I split health into two queries, not one, for throughput. Every attempt
 -- to an endpoint would otherwise update its row, and each transaction holds
 -- that row lock until its commit is flushed to disk. Deliveries to one
 -- endpoint then queue on the row, one fsync at a time, and under load the
--- queue sustains itself: the load test measured either about 450 or about
+-- queue sustains itself: my load test measured either about 450 or about
 -- 1,400 deliveries per second for the same setup, depending on whether such
 -- a convoy formed. Since most attempts are successes to a healthy endpoint,
 -- which change nothing, ClearEndpointFailures skips those rows entirely.

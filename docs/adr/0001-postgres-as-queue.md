@@ -5,37 +5,38 @@
 
 ## Context
 
-Deliveries must be durable, retried at a future time, inspectable by producers, and
-processed by several workers in parallel. The usual options are a dedicated broker
-(RabbitMQ, Kafka, SQS, Redis Streams) or the database that already stores the data.
+Deliveries have to survive restarts, wait for a retry at some future time, be visible to
+the producer through the API, and be processed by several workers at once. The usual way
+to get that is a message broker (RabbitMQ, Kafka, SQS, Redis Streams). The other way is the
+database I already need for everything else.
 
 ## Decision
 
-Store deliveries in a PostgreSQL table and have workers claim them with
+I keep deliveries in a PostgreSQL table, and workers claim them with
 `SELECT ... FOR UPDATE SKIP LOCKED`.
 
 ## Consequences
 
-**Positive**
-- Publishing an event and creating its deliveries is a single ACID transaction. With a
-  separate broker we would need an outbox pattern to avoid "saved but never enqueued".
-- Delayed retries are just `next_attempt_at`; most brokers need extra machinery for
-  scheduled delivery.
-- The queue is queryable with SQL, which the producer-facing API needs anyway.
-- One dependency to run, back up, and monitor.
+**What I get**
+- Publishing an event and creating its deliveries is one transaction. With a separate
+  broker I would need an outbox to avoid the "saved but never queued" case.
+- A delayed retry is just a `next_attempt_at` column. Most brokers need extra machinery
+  to schedule a message for later.
+- The queue is plain SQL, which the API needs anyway to show producers what happened.
+- One system to run, back up and monitor.
 
-**Negative**
-- Throughput is bounded by the database. For this project's target (hundreds to low
-  thousands of deliveries per second) PostgreSQL is sufficient; the load tests will
-  document where the limit is.
-- Polling adds latency between "due" and "sent". It can be reduced with
-  `LISTEN/NOTIFY` as a wake-up hint if measurements show it matters.
-- High update churn on `deliveries` produces dead tuples; autovacuum settings for that
-  table need attention, and the retention job keeps it small.
+**What it costs**
+- Throughput is bounded by the database. I aimed at hundreds to low thousands of
+  deliveries per second, which PostgreSQL handles; the load tests later put the ceiling
+  at about 1,500 per second on a GitHub-hosted runner ([performance](../performance.md)).
+- Workers poll, so there is some delay between "due" and "sent". If it ever matters,
+  `LISTEN/NOTIFY` can wake them up sooner.
+- `deliveries` gets a lot of updates, which leaves dead tuples behind. Autovacuum needs an
+  eye on this table, and the retention job keeps it small.
 
-## Alternatives considered
+## Alternatives I considered
 
-- **RabbitMQ / SQS**: better raw throughput, but requires an outbox and a second system
-  for scheduled retries, which adds complexity the target load does not justify.
-- **Redis (e.g. sorted sets)**: fast, but durability depends on persistence settings,
-  and state would be split between two stores.
+- **RabbitMQ or SQS**: more raw throughput, but I would need an outbox plus something else
+  for scheduled retries. That is a lot of moving parts for the load I expect.
+- **Redis sorted sets**: fast, but durability depends on how persistence is configured,
+  and the state would live in two places.
