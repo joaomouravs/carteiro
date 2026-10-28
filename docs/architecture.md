@@ -132,8 +132,11 @@ value in `[delay/2, delay]`. Jitter spreads retries out so that an endpoint reco
 from an outage is not hit by every queued delivery at the same instant; keeping the lower
 half fixed guarantees a minimum wait.
 
-Defaults: `base = 30s`, `cap = 6h`, `max_attempts = 12`, which covers roughly 15–20 hours
-before a delivery is marked `dead`.
+Defaults: `base = 30s`, `cap = 6h`, `max_attempts = 12`. The 11 waits between the 12
+attempts add up to at most 14h31m30s, and jitter can halve each one, so a delivery is
+retried for between about 7 and 14.5 hours before it is marked `dead`: long enough to
+ride out an overnight outage. `Retry-After` on a `429` or `503` is a lower bound for the
+next wait (the receiver asked not to be called sooner), capped at `cap` (FR-14).
 
 ## Signing
 
