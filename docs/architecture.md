@@ -159,8 +159,10 @@ during validation and a private one during delivery (DNS rebinding).
 
 Blocked by default: `127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`,
 `192.168.0.0/16`, `169.254.0.0/16`, `fe80::/10`, `fc00::/7`, `100.64.0.0/10`,
-`0.0.0.0/8`, and multicast. A development flag allows private ranges so local receivers
-work.
+`0.0.0.0/8`, `::`, multicast, and `255.255.255.255`. IPv6 addresses that embed an IPv4
+address (IPv4-mapped `::ffff:a.b.c.d` and NAT64 `64:ff9b::/96`) are judged by the IPv4
+address inside them, so an internal address cannot sneak through in IPv6 form. A
+development flag allows private ranges so local receivers work.
 
 ## Observability
 
