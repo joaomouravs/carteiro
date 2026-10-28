@@ -26,12 +26,19 @@ so you can inspect and replay what went wrong.
 Requirements: Docker. For development, also Go 1.27 and
 [Task](https://taskfile.dev) (`go install github.com/go-task/task/v3/cmd/task@latest`).
 
-Run the whole stack (PostgreSQL, migrations, API, worker) with one command:
+Run the whole stack (PostgreSQL, migrations, API, worker, dashboard) with one command:
 
 ```sh
 docker compose -f deploy/compose.yaml up --build
 curl localhost:8080/readyz   # {"status":"ok"}
 ```
+
+The [dashboard](dashboard/) is at http://localhost:3001: sign in with an application's API
+key to follow events down to each HTTP attempt, replay failures, enable endpoints and
+rotate their secrets. It is a separate Next.js app that uses only the public API, and the
+key stays on its server in an encrypted, `httpOnly` cookie
+([ADR 0007](docs/adr/0007-dashboard-as-a-separate-nextjs-app.md)). To work on it:
+`cd dashboard && cp .env.example .env.local && npm ci && npm run dev`.
 
 Development workflow:
 
@@ -201,6 +208,8 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
   - [0004: At-least-once delivery, without ordering](docs/adr/0004-at-least-once-delivery.md)
   - [0005: Go with minimal dependencies](docs/adr/0005-go-with-minimal-dependencies.md)
   - [0006: Idempotency compares normalized JSON](docs/adr/0006-idempotency-compares-normalized-json.md)
+  - [0007: The dashboard is a separate Next.js app on the public API](docs/adr/0007-dashboard-as-a-separate-nextjs-app.md)
+- [Performance](docs/performance.md): how it is load tested, and what limits it
 
 ## License
 

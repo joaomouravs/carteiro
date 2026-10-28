@@ -37,5 +37,5 @@ shown at any point.
 ## M4: Proof
 - [ ] Concurrency and fault-injection tests
 - [ ] k6 load tests, with results and the identified bottleneck published ([performance](performance.md)); method, tooling and the first bottleneck (a lock convoy) done, numbers from the CI workflow pending
-- [ ] Dashboard UI: a separate Next.js app on the public API ([ADR 0007](adr/0007-dashboard-as-a-separate-nextjs-app.md))
+- [x] Dashboard UI: a separate Next.js app on the public API ([ADR 0007](adr/0007-dashboard-as-a-separate-nextjs-app.md))
 - [ ] Final README, demo GIF, architecture diagrams

@@ -49,6 +49,32 @@ jobs:
         working-directory: examples/receiver
         run: go test -race -count=1 ./...
 
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      # Fails on a known high or critical vulnerability in what ships. This
+      # is how Next.js 16.4.0's remote code execution advisories would have
+      # been caught.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          SESSION_SECRET: ci-build-only-not-a-real-secret-0123456789
+
   generated-code:
     name: sqlc diff
     runs-on: ubuntu-latest
@@ -69,3 +95,10 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Build the dashboard image
+        uses: docker/build-push-action@v7
+        with:
+          context: dashboard
+          push: false
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard

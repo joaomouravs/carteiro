@@ -36,6 +36,7 @@ internal/
   store/               generated sqlc code + hand-written repository methods
   config/              environment configuration
 migrations/            SQL migrations (embedded in the binary)
+dashboard/             Next.js dashboard on the public API (ADR 0007)
 examples/receiver/     sample receiver verifying signatures with the official library
 deploy/                docker compose, Prometheus and Grafana config
 loadtest/              throughput and k6 ingest scripts (docs/performance.md)

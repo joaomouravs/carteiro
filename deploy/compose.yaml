@@ -63,6 +63,22 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # The dashboard (dashboard/, ADR 0007): http://localhost:3001, sign in with
+  # an application's API key.
+  dashboard:
+    build:
+      context: ../dashboard
+    image: carteiro-dashboard:dev
+    environment:
+      # Server to server, inside the compose network.
+      CARTEIRO_API_URL: http://api:8080
+      # Development only; matches dashboard/.env.example.
+      SESSION_SECRET: dev-session-secret-change-me-0123456789
+    ports:
+      - "3001:3001"
+    depends_on:
+      - api
+
   # The example receiver (examples/receiver), only with --profile demo. It
   # needs the secret of an endpoint created for http://receiver:9000/webhooks;
   # see "Trying it end to end" in the README.
