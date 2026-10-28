@@ -35,3 +35,38 @@ func (q *Queries) GetApplication(ctx context.Context, id uuid.UUID) (Application
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
 	return i, err
 }
+
+const listApplications = `-- name: ListApplications :many
+SELECT id, name, created_at FROM applications
+WHERE $1::uuid IS NULL OR id < $1::uuid
+ORDER BY id DESC
+LIMIT $2
+`
+
+type ListApplicationsParams struct {
+	Before *uuid.UUID
+	Limit  int32
+}
+
+// ListApplications returns the newest applications first. UUIDv7 ids are
+// ordered by creation time, so the id alone is both the sort key and the
+// cursor: the next page starts below the last id of the previous one.
+func (q *Queries) ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error) {
+	rows, err := q.db.Query(ctx, listApplications, arg.Before, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Application
+	for rows.Next() {
+		var i Application
+		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

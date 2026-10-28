@@ -14,15 +14,19 @@ func mapLookup(env map[string]string) func(string) (string, bool) {
 	}
 }
 
+const validToken = "0123456789abcdef0123456789abcdef"
+
 func TestLoadDefaults(t *testing.T) {
 	cfg, err := Load(mapLookup(map[string]string{
 		"CARTEIRO_DATABASE_URL": "postgres://localhost/carteiro",
+		"CARTEIRO_ADMIN_TOKEN":  validToken,
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
 		DatabaseURL:     "postgres://localhost/carteiro",
+		AdminToken:      validToken,
 		HTTPAddr:        ":8080",
 		LogLevel:        slog.LevelInfo,
 		ShutdownTimeout: 15 * time.Second,
@@ -35,6 +39,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := Load(mapLookup(map[string]string{
 		"CARTEIRO_DATABASE_URL":     "postgres://db/carteiro",
+		"CARTEIRO_ADMIN_TOKEN":      validToken,
 		"CARTEIRO_HTTP_ADDR":        "127.0.0.1:9000",
 		"CARTEIRO_LOG_LEVEL":        "debug",
 		"CARTEIRO_SHUTDOWN_TIMEOUT": "30s",
@@ -55,18 +60,32 @@ func TestLoadInvalid(t *testing.T) {
 	}{
 		{
 			name:    "missing database url",
-			env:     map[string]string{},
+			env:     map[string]string{"CARTEIRO_ADMIN_TOKEN": validToken},
 			wantErr: []string{"CARTEIRO_DATABASE_URL is required"},
 		},
 		{
 			name:    "empty database url",
-			env:     map[string]string{"CARTEIRO_DATABASE_URL": ""},
+			env:     map[string]string{"CARTEIRO_DATABASE_URL": "", "CARTEIRO_ADMIN_TOKEN": validToken},
 			wantErr: []string{"CARTEIRO_DATABASE_URL is required"},
+		},
+		{
+			name:    "missing admin token",
+			env:     map[string]string{"CARTEIRO_DATABASE_URL": "postgres://db"},
+			wantErr: []string{"CARTEIRO_ADMIN_TOKEN is required"},
+		},
+		{
+			name: "short admin token",
+			env: map[string]string{
+				"CARTEIRO_DATABASE_URL": "postgres://db",
+				"CARTEIRO_ADMIN_TOKEN":  "hunter2",
+			},
+			wantErr: []string{"at least 32 characters, got 7"},
 		},
 		{
 			name: "address without port",
 			env: map[string]string{
 				"CARTEIRO_DATABASE_URL": "postgres://db",
+				"CARTEIRO_ADMIN_TOKEN":  validToken,
 				"CARTEIRO_HTTP_ADDR":    "localhost",
 			},
 			wantErr: []string{"CARTEIRO_HTTP_ADDR"},
@@ -75,6 +94,7 @@ func TestLoadInvalid(t *testing.T) {
 			name: "non-positive timeout",
 			env: map[string]string{
 				"CARTEIRO_DATABASE_URL":     "postgres://db",
+				"CARTEIRO_ADMIN_TOKEN":      validToken,
 				"CARTEIRO_SHUTDOWN_TIMEOUT": "0s",
 			},
 			wantErr: []string{"must be positive"},
@@ -85,7 +105,7 @@ func TestLoadInvalid(t *testing.T) {
 				"CARTEIRO_LOG_LEVEL":        "loud",
 				"CARTEIRO_SHUTDOWN_TIMEOUT": "soon",
 			},
-			wantErr: []string{"CARTEIRO_DATABASE_URL", "CARTEIRO_LOG_LEVEL", "CARTEIRO_SHUTDOWN_TIMEOUT"},
+			wantErr: []string{"CARTEIRO_DATABASE_URL", "CARTEIRO_ADMIN_TOKEN", "CARTEIRO_LOG_LEVEL", "CARTEIRO_SHUTDOWN_TIMEOUT"},
 		},
 	}
 	for _, tt := range tests {
@@ -100,5 +120,15 @@ func TestLoadInvalid(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLoadNeverEchoesAdminToken(t *testing.T) {
+	_, err := Load(mapLookup(map[string]string{
+		"CARTEIRO_DATABASE_URL": "postgres://db",
+		"CARTEIRO_ADMIN_TOKEN":  "s3cr3t-but-short",
+	}))
+	if err == nil || strings.Contains(err.Error(), "s3cr3t") {
+		t.Errorf("error %q must reject the token without echoing it", err)
 	}
 }

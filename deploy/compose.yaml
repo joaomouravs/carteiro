@@ -7,6 +7,8 @@ x-carteiro: &carteiro
   image: carteiro:dev
   environment:
     CARTEIRO_DATABASE_URL: postgres://carteiro:carteiro@postgres:5432/carteiro?sslmode=disable
+    # Development only; matches .env.example.
+    CARTEIRO_ADMIN_TOKEN: dev-admin-token-change-me-0123456789
 
 services:
   postgres:

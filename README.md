@@ -2,7 +2,7 @@
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** foundation done (M0); the ingest API (M1) is next. See the [roadmap](docs/roadmap.md).
+**Status:** M1 (ingest API) in progress: applications and API keys are done. See the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -49,9 +49,44 @@ installation and use the same versions as CI.
 | Variable | Default | Description |
 |---|---|---|
 | `CARTEIRO_DATABASE_URL` | (required) | PostgreSQL connection string |
+| `CARTEIRO_ADMIN_TOKEN` | (required) | Operator token, at least 32 characters (`openssl rand -hex 32`) |
 | `CARTEIRO_HTTP_ADDR` | `:8080` | Address the API listens on |
 | `CARTEIRO_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `CARTEIRO_SHUTDOWN_TIMEOUT` | `15s` | Time in-flight requests get to finish on shutdown |
+
+## API
+
+Errors use [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457)
+(`application/problem+json`), with a `request_id` matching the `X-Request-Id` header.
+Lists are paginated with an opaque cursor: pass `next_cursor` back as `?cursor=`.
+
+The operator creates an application and an API key with the admin token:
+
+```sh
+ADMIN=dev-admin-token-change-me-0123456789   # the development token from .env.example
+
+curl -s localhost:8080/v1/applications -H "Authorization: Bearer $ADMIN"   -H 'Content-Type: application/json' -d '{"name":"Acme"}'
+# {"id":"019a...","name":"Acme","created_at":"..."}
+
+curl -s localhost:8080/v1/applications/<id>/api-keys -H "Authorization: Bearer $ADMIN"   -H 'Content-Type: application/json' -d '{"name":"production"}'
+# {"id":"...","prefix":"crt_AbCdEfGh","key":"crt_AbCdEfGh...", ...}   <- shown only once
+```
+
+The producer then authenticates with the API key:
+
+```sh
+curl -s localhost:8080/v1/me -H "Authorization: Bearer crt_..."
+```
+
+| Method and path | Auth | Description |
+|---|---|---|
+| `POST /v1/applications` | admin | Create an application |
+| `GET /v1/applications` | admin | List applications, newest first (paginated) |
+| `GET /v1/applications/{id}` | admin | Get an application |
+| `POST /v1/applications/{id}/api-keys` | admin | Issue an API key (returned once) |
+| `GET /v1/applications/{id}/api-keys` | admin | List an application's keys (prefix only) |
+| `DELETE /v1/applications/{id}/api-keys/{key_id}` | admin | Revoke a key (idempotent) |
+| `GET /v1/me` | API key | The application the key belongs to |
 
 ## Documentation
 

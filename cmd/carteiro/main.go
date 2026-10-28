@@ -68,7 +68,7 @@ func serve(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 	defer pool.Close()
 
 	srv := &http.Server{
-		Handler: api.NewHandler(logger, pool),
+		Handler: api.New(logger, pool, cfg.AdminToken).Handler(),
 		// Without these, a client that opens a connection and sends bytes
 		// slowly (Slowloris) holds a goroutine and a socket forever.
 		ReadHeaderTimeout: 5 * time.Second,

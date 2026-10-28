@@ -14,6 +14,9 @@ type Config struct {
 	// DatabaseURL is a PostgreSQL connection string. It contains a password,
 	// so it must never be logged.
 	DatabaseURL string
+	// AdminToken authorizes the operator endpoints (applications and API
+	// keys). Like DatabaseURL, it must never be logged.
+	AdminToken string
 	// HTTPAddr is the host:port the API listens on.
 	HTTPAddr string
 	// LogLevel is the minimum level written to the log.
@@ -22,6 +25,10 @@ type Config struct {
 	// SIGINT or SIGTERM.
 	ShutdownTimeout time.Duration
 }
+
+// minAdminTokenLen rejects tokens short enough to guess. 32 characters of a
+// random string such as `openssl rand -hex 32` output is far beyond that.
+const minAdminTokenLen = 32
 
 // Load reads the configuration through lookup, which is os.LookupEnv in
 // production and a map in tests. It reports every invalid variable at once,
@@ -38,6 +45,16 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		cfg.DatabaseURL = v
 	} else {
 		errs = append(errs, errors.New("CARTEIRO_DATABASE_URL is required"))
+	}
+
+	switch v, _ := lookup("CARTEIRO_ADMIN_TOKEN"); {
+	case v == "":
+		errs = append(errs, errors.New("CARTEIRO_ADMIN_TOKEN is required"))
+	case len(v) < minAdminTokenLen:
+		// The message gives the length, never the value.
+		errs = append(errs, fmt.Errorf("CARTEIRO_ADMIN_TOKEN: must have at least %d characters, got %d", minAdminTokenLen, len(v)))
+	default:
+		cfg.AdminToken = v
 	}
 
 	if v, ok := lookup("CARTEIRO_HTTP_ADDR"); ok {

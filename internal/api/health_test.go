@@ -32,7 +32,7 @@ func TestProbes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			NewHandler(logger, tt.db).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			(&Server{logger: logger, db: tt.db}).Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
 
 			if rec.Code != tt.status {
 				t.Errorf("status = %d, want %d", rec.Code, tt.status)
@@ -46,7 +46,7 @@ func TestProbes(t *testing.T) {
 
 func TestProbesRejectOtherMethods(t *testing.T) {
 	rec := httptest.NewRecorder()
-	h := NewHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), fakePinger{})
+	h := (&Server{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), db: fakePinger{}}).Handler()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
 
 	if rec.Code != http.StatusMethodNotAllowed {

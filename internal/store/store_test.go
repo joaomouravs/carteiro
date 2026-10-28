@@ -1,85 +1,38 @@
-package store
+package store_test
 
 import (
 	"context"
 	"errors"
-	"flag"
-	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
+
+	"github.com/joaomouravs/carteiro/internal/store"
+	"github.com/joaomouravs/carteiro/internal/testdb"
 )
 
-// testPool is shared by every test in the package. It points at a throwaway
-// PostgreSQL container with all migrations applied. It is nil with -short.
+// testPool points at a throwaway PostgreSQL with all migrations applied. It
+// is nil with -short.
 var testPool *pgxpool.Pool
 
-// TestMain starts one container for the whole package instead of one per
-// test: starting PostgreSQL takes seconds, a test should take milliseconds.
-func TestMain(m *testing.M) {
-	flag.Parse()
-	if testing.Short() {
-		os.Exit(m.Run())
-	}
-	code, err := runWithDatabase(m)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "store tests:", err)
-		os.Exit(1)
-	}
-	os.Exit(code)
-}
-
-func runWithDatabase(m *testing.M) (int, error) {
-	ctx := context.Background()
-
-	ctr, err := postgres.Run(ctx, "postgres:18-alpine",
-		postgres.WithDatabase("carteiro"),
-		postgres.WithUsername("carteiro"),
-		postgres.WithPassword("carteiro"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		return 0, fmt.Errorf("start postgres: %w", err)
-	}
-	defer func() { _ = testcontainers.TerminateContainer(ctr) }()
-
-	url, err := ctr.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		return 0, err
-	}
-	if err := Migrate(ctx, url, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
-		return 0, err
-	}
-	testPool, err = Connect(ctx, url)
-	if err != nil {
-		return 0, err
-	}
-	defer testPool.Close()
-
-	return m.Run(), nil
-}
+func TestMain(m *testing.M) { testdb.Run(m, &testPool) }
 
 // requireDB skips the test when running with -short.
-func requireDB(t *testing.T) *Queries {
+func requireDB(t *testing.T) *store.Queries {
 	t.Helper()
-	if testPool == nil {
-		t.Skip("needs PostgreSQL; skipped with -short")
-	}
-	return New(testPool)
+	testdb.Require(t, testPool)
+	return store.New(testPool)
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
 	requireDB(t)
 	url := testPool.Config().ConnString()
-	if err := Migrate(context.Background(), url, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+	if err := store.Migrate(context.Background(), url, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
 }

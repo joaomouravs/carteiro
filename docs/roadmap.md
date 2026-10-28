@@ -13,10 +13,10 @@ shown at any point.
 - [x] CI: `golangci-lint`, `go test -race`, integration tests, `sqlc diff`, Docker build
 
 ## M1: Ingest
-- [ ] Admin token; applications; API key issue and revoke (FR-01–03)
+- [x] Admin token; applications; API key issue and revoke (FR-01–03)
 - [ ] Endpoints CRUD with URL validation; secret generation and encryption at rest (FR-04, 05, 07)
 - [ ] `POST /v1/events` with idempotency and fan-out (FR-10–12)
-- [ ] Problem+json errors (RFC 9457), cursor pagination
+- [x] Problem+json errors (RFC 9457), cursor pagination
 
 ## M2: Delivery
 - [ ] Standard Webhooks signing, tested against the spec's vectors (FR-13)
