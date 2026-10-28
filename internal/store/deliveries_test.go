@@ -99,7 +99,7 @@ func getDelivery(t *testing.T, id uuid.UUID) deliveryState {
 	return s
 }
 
-func claim(t *testing.T, q *store.Queries, limit int32) []store.ClaimDueDeliveriesRow {
+func claim(t *testing.T, q *store.Queries, limit int64) []store.ClaimDueDeliveriesRow {
 	t.Helper()
 	rows, err := q.ClaimDueDeliveries(context.Background(), store.ClaimDueDeliveriesParams{
 		Limit: limit, LeaseMs: testLease.Milliseconds(),

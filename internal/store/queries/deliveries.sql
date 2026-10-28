@@ -16,7 +16,7 @@ WITH due AS (
     SELECT id FROM deliveries
     WHERE status = 'pending' AND next_attempt_at <= now()
     ORDER BY next_attempt_at
-    LIMIT sqlc.arg('limit')
+    LIMIT sqlc.arg('limit')::bigint
     FOR UPDATE SKIP LOCKED
 )
 UPDATE deliveries d
@@ -37,7 +37,7 @@ WITH expired AS (
     SELECT id FROM deliveries
     WHERE status = 'in_flight' AND lease_expires_at <= now()
     ORDER BY lease_expires_at
-    LIMIT sqlc.arg('limit')
+    LIMIT sqlc.arg('limit')::bigint
     FOR UPDATE SKIP LOCKED
 )
 UPDATE deliveries d
@@ -91,14 +91,16 @@ WHERE id = sqlc.arg('id')
 -- InsertAttempt appends to the attempt log (FR-16). It is written even when
 -- CompleteDelivery is fenced out: the request did happen, and the receiver
 -- may have processed it.
+-- duration_ms and response_status arrive as bigint so Go never narrows an
+-- integer; the column type, integer, still bounds what is stored.
 -- name: InsertAttempt :exec
 INSERT INTO attempts (delivery_id, attempt_number, started_at, duration_ms, response_status, response_body, error)
 VALUES (
     sqlc.arg('delivery_id'),
     sqlc.arg('attempt_number'),
     sqlc.arg('started_at'),
-    sqlc.arg('duration_ms'),
-    sqlc.narg('response_status'),
+    sqlc.arg('duration_ms')::bigint,
+    sqlc.narg('response_status')::bigint,
     sqlc.narg('response_body'),
     sqlc.narg('error')
 );

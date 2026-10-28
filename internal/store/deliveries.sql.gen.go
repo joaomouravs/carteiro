@@ -18,7 +18,7 @@ WITH due AS (
     SELECT id FROM deliveries
     WHERE status = 'pending' AND next_attempt_at <= now()
     ORDER BY next_attempt_at
-    LIMIT $2
+    LIMIT $2::bigint
     FOR UPDATE SKIP LOCKED
 )
 UPDATE deliveries d
@@ -33,7 +33,7 @@ RETURNING d.id, d.attempt_count
 
 type ClaimDueDeliveriesParams struct {
 	LeaseMs int64
-	Limit   int32
+	Limit   int64
 }
 
 type ClaimDueDeliveriesRow struct {
@@ -181,8 +181,8 @@ VALUES (
     $1,
     $2,
     $3,
-    $4,
-    $5,
+    $4::bigint,
+    $5::bigint,
     $6,
     $7
 )
@@ -192,8 +192,8 @@ type InsertAttemptParams struct {
 	DeliveryID     uuid.UUID
 	AttemptNumber  int32
 	StartedAt      time.Time
-	DurationMs     int32
-	ResponseStatus *int32
+	DurationMs     int64
+	ResponseStatus *int64
 	ResponseBody   *string
 	Error          *string
 }
@@ -201,6 +201,8 @@ type InsertAttemptParams struct {
 // InsertAttempt appends to the attempt log (FR-16). It is written even when
 // CompleteDelivery is fenced out: the request did happen, and the receiver
 // may have processed it.
+// duration_ms and response_status arrive as bigint so Go never narrows an
+// integer; the column type, integer, still bounds what is stored.
 func (q *Queries) InsertAttempt(ctx context.Context, arg InsertAttemptParams) error {
 	_, err := q.db.Exec(ctx, insertAttempt,
 		arg.DeliveryID,
@@ -219,7 +221,7 @@ WITH expired AS (
     SELECT id FROM deliveries
     WHERE status = 'in_flight' AND lease_expires_at <= now()
     ORDER BY lease_expires_at
-    LIMIT $2
+    LIMIT $2::bigint
     FOR UPDATE SKIP LOCKED
 )
 UPDATE deliveries d
@@ -233,7 +235,7 @@ RETURNING d.id, d.attempt_count
 
 type ReclaimExpiredDeliveriesParams struct {
 	LeaseMs int64
-	Limit   int32
+	Limit   int64
 }
 
 type ReclaimExpiredDeliveriesRow struct {
