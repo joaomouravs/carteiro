@@ -26,6 +26,7 @@ import (
 	"github.com/joaomouravs/carteiro/internal/config"
 	"github.com/joaomouravs/carteiro/internal/crypto"
 	"github.com/joaomouravs/carteiro/internal/delivery"
+	"github.com/joaomouravs/carteiro/internal/metrics"
 	"github.com/joaomouravs/carteiro/internal/netguard"
 	"github.com/joaomouravs/carteiro/internal/retention"
 	"github.com/joaomouravs/carteiro/internal/store"
@@ -98,6 +99,16 @@ func start(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 		logger.Warn("loopback and private networks are reachable; use only for local development")
 	}
 
+	m := metrics.New()
+	if r.worker {
+		m.RegisterQueue(store.New(pool), logger)
+	}
+	stopMetrics, err := serveMetrics(ctx, cfg.MetricsAddr, m.Handler(), logger)
+	if err != nil {
+		return err
+	}
+	defer stopMetrics()
+
 	if !r.worker {
 		return serve(ctx, stop, cfg, logger, pool, cipher)
 	}
@@ -109,6 +120,7 @@ func start(ctx context.Context, stop context.CancelFunc, cfg config.Config, logg
 		NetPolicy:          netguard.Policy{AllowPrivateNetworks: cfg.AllowPrivateNetworks},
 		DisableAfter:       cfg.DisableAfter,
 		DisableMinFailures: cfg.DisableMinFailures,
+		Metrics:            m,
 	})
 	// Every worker process also purges old data (FR-21); an advisory lock
 	// keeps two of them from purging at the same time.
@@ -200,4 +212,32 @@ func serveUntilDone(ctx context.Context, stop context.CancelFunc, srv *http.Serv
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// serveMetrics serves GET /metrics on addr until the returned function is
+// called. Listening happens before it returns, so a port already in use fails
+// startup instead of leaving a process that cannot be monitored.
+func serveMetrics(ctx context.Context, addr string, h http.Handler, logger *slog.Logger) (func(), error) {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", h)
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
+	}
+	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("metrics listen: %w", err)
+	}
+	logger.Info("metrics listening", "addr", ln.Addr().String(), "path", "/metrics")
+	go func() {
+		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("metrics server", "err", err)
+		}
+	}()
+	return func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}, nil
 }

@@ -364,6 +364,33 @@ func (q *Queries) ListEventDeliveries(ctx context.Context, arg ListEventDeliveri
 	return items, nil
 }
 
+const queueStats = `-- name: QueueStats :one
+SELECT count(*) FILTER (WHERE status = 'pending')::bigint   AS pending,
+       count(*) FILTER (WHERE status = 'in_flight')::bigint AS in_flight,
+       COALESCE(extract(epoch FROM now() - min(next_attempt_at)
+                FILTER (WHERE status = 'pending' AND next_attempt_at <= now())), 0)::float8 AS oldest_due_age_seconds
+FROM deliveries
+WHERE status IN ('pending', 'in_flight')
+`
+
+type QueueStatsRow struct {
+	Pending             int64
+	InFlight            int64
+	OldestDueAgeSeconds float64
+}
+
+// QueueStats feeds the queue metrics (FR-20), read at each Prometheus scrape.
+// oldest_due_age_seconds counts from when the most overdue pending delivery
+// became due, not from when it was created: a delivery waiting out its
+// backoff is on schedule, while one past its time is waiting for a worker,
+// which is what an alert should catch.
+func (q *Queries) QueueStats(ctx context.Context) (QueueStatsRow, error) {
+	row := q.db.QueryRow(ctx, queueStats)
+	var i QueueStatsRow
+	err := row.Scan(&i.Pending, &i.InFlight, &i.OldestDueAgeSeconds)
+	return i, err
+}
+
 const reclaimExpiredDeliveries = `-- name: ReclaimExpiredDeliveries :many
 WITH expired AS (
     SELECT id FROM deliveries

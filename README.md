@@ -2,9 +2,10 @@
 
 > Reliable webhook delivery as a self-hostable service: signed, retried, observable.
 
-**Status:** M2 (delivery) done: events are signed, delivered, retried with backoff and
-recorded, and every attempt can be queried through the API. Operations (M3: replay, endpoint
-disabling, secret rotation, metrics) is next. See the [roadmap](docs/roadmap.md).
+**Status:** delivery (M2) and operations (M3) done: events are signed, delivered, retried,
+recorded and queryable; failing endpoints are disabled and their deliveries can be replayed;
+secrets rotate without downtime; metrics feed a Grafana dashboard. Next is M4: load and
+failure testing, with published numbers. See the [roadmap](docs/roadmap.md).
 
 Carteiro (Portuguese for *mail carrier*) takes webhook delivery off your application's
 plate. You publish an event once; Carteiro fans it out to every subscribed endpoint,
@@ -71,6 +72,21 @@ docker compose -f deploy/compose.yaml logs receiver    # msg="webhook received" 
 curl -s localhost:8080/v1/events/$EVENT/deliveries -H "Authorization: Bearer $KEY"   # "status":"succeeded"
 ```
 
+### Metrics and dashboard
+
+Add `--profile observability` to run Prometheus and a Grafana dashboard provisioned from
+[`deploy/grafana`](deploy/grafana/dashboards/carteiro.json):
+
+```sh
+docker compose -f deploy/compose.yaml --profile observability up -d --build --scale worker=2
+# Grafana: http://localhost:3000 (anonymous, read-only)   Prometheus: http://localhost:9090
+```
+
+The panel to alert on is **oldest overdue delivery** (`carteiro_oldest_pending_age_seconds`):
+how long the most overdue delivery has waited for a worker. It grows when workers fall
+behind, well before anything fails. Prometheus finds every worker replica through DNS, so
+scaling the worker needs no configuration change.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -81,6 +97,7 @@ curl -s localhost:8080/v1/events/$EVENT/deliveries -H "Authorization: Bearer $KE
 | `CARTEIRO_ALLOW_HTTP_ENDPOINTS` | `false` | Accept `http://` endpoint URLs; development only |
 | `CARTEIRO_ALLOW_PRIVATE_NETWORKS` | `false` | Let endpoints and deliveries reach loopback and private addresses (link-local and cloud metadata stay blocked); development only |
 | `CARTEIRO_HTTP_ADDR` | `:8080` | Address the API listens on |
+| `CARTEIRO_METRICS_ADDR` | `:9091` | Where every process serves `GET /metrics` for Prometheus; kept off the public API |
 | `CARTEIRO_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `CARTEIRO_SHUTDOWN_TIMEOUT` | `15s` | Time in-flight requests get to finish on shutdown |
 | `CARTEIRO_WORKER_CONCURRENCY` | `10` | Deliveries one worker sends at once (1 to 1000) |

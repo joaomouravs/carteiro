@@ -33,6 +33,10 @@ type Config struct {
 	AllowPrivateNetworks bool
 	// HTTPAddr is the host:port the API listens on.
 	HTTPAddr string
+	// MetricsAddr is where every process serves GET /metrics (FR-20). It is
+	// apart from the API so the metrics are not public, and so the worker,
+	// which has no API, can serve them too.
+	MetricsAddr string
 	// LogLevel is the minimum level written to the log.
 	LogLevel slog.Level
 	// ShutdownTimeout bounds how long in-flight requests get to finish after
@@ -81,6 +85,7 @@ const minAdminTokenLen = 32
 func Load(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
 		HTTPAddr:           ":8080",
+		MetricsAddr:        ":9091",
 		LogLevel:           slog.LevelInfo,
 		ShutdownTimeout:    15 * time.Second,
 		WorkerConcurrency:  10,
@@ -135,13 +140,19 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	parseBool("CARTEIRO_ALLOW_HTTP_ENDPOINTS", &cfg.AllowHTTPEndpoints)
 	parseBool("CARTEIRO_ALLOW_PRIVATE_NETWORKS", &cfg.AllowPrivateNetworks)
 
-	if v, ok := lookup("CARTEIRO_HTTP_ADDR"); ok {
-		if _, _, err := net.SplitHostPort(v); err != nil {
-			errs = append(errs, fmt.Errorf("CARTEIRO_HTTP_ADDR: %w", err))
-		} else {
-			cfg.HTTPAddr = v
+	parseAddr := func(name string, dst *string) {
+		v, ok := lookup(name)
+		if !ok {
+			return
 		}
+		if _, _, err := net.SplitHostPort(v); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			return
+		}
+		*dst = v
 	}
+	parseAddr("CARTEIRO_HTTP_ADDR", &cfg.HTTPAddr)
+	parseAddr("CARTEIRO_METRICS_ADDR", &cfg.MetricsAddr)
 
 	if v, ok := lookup("CARTEIRO_LOG_LEVEL"); ok {
 		if err := cfg.LogLevel.UnmarshalText([]byte(v)); err != nil {

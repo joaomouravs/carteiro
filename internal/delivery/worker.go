@@ -67,6 +67,17 @@ type Options struct {
 	// can go days between two failures.
 	DisableAfter       time.Duration
 	DisableMinFailures int
+	// Metrics, if set, is told about every recorded attempt.
+	Metrics Recorder
+}
+
+// Recorder receives delivery metrics. The metrics package implements it, so
+// this package does not depend on Prometheus.
+type Recorder interface {
+	// ObserveAttempt is called once per recorded attempt. outcome is
+	// succeeded, retry, dead, or stale when the lease was lost and the
+	// result discarded.
+	ObserveAttempt(outcome string, duration time.Duration)
 }
 
 // Reasons an endpoint is disabled, as stored in endpoints.disabled_reason.
@@ -296,7 +307,7 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 		attempt.Error = &msg
 	}
 
-	log := w.logger.With("delivery_id", j.ID, "endpoint_id", j.EndpointID, "attempt", j.attempt)
+	log := w.logger.With("delivery_id", j.ID, "event_id", j.EventID, "endpoint_id", j.EndpointID, "attempt", j.attempt)
 	var (
 		fenced   bool
 		disabled string // the reason, if this attempt disabled the endpoint
@@ -355,6 +366,19 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 	default:
 		log.Info("delivery attempt failed", "next_status", status,
 			"response_status", res.status, "err", res.err, "duration_ms", duration.Milliseconds())
+	}
+
+	if err == nil && w.opts.Metrics != nil {
+		outcome := "succeeded"
+		switch {
+		case fenced:
+			outcome = "stale"
+		case status == statusPending:
+			outcome = "retry"
+		case status == statusDead:
+			outcome = "dead"
+		}
+		w.opts.Metrics.ObserveAttempt(outcome, duration)
 	}
 }
 

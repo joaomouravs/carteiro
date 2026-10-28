@@ -31,7 +31,7 @@ shown at any point.
 - [x] Replay, single and bulk (FR-18)
 - [x] Automatic endpoint disabling and re-enabling (FR-08, 09)
 - [x] Secret rotation with a grace period (FR-06)
-- [ ] Prometheus metrics; Grafana dashboard provisioned by compose (FR-20)
+- [x] Prometheus metrics; Grafana dashboard provisioned by compose (FR-20)
 - [x] Retention job (FR-21)
 
 ## M4: Proof

@@ -74,5 +74,31 @@ services:
       # exits with a message saying what is missing.
       RECEIVER_SECRET: ${RECEIVER_SECRET:-}
 
+  # Metrics and the dashboard, only with --profile observability: they are
+  # two more images, not needed to run Carteiro.
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.15.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:13.1.7
+    environment:
+      # Local demo: anyone can view the dashboard without logging in.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/carteiro.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   pgdata:

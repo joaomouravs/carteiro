@@ -714,3 +714,40 @@ func TestReplayedDeliveryGetsAFullSchedule(t *testing.T) {
 		t.Errorf("attempts = %+v, want attempt number 4: numbering continues", a)
 	}
 }
+
+type fakeRecorder struct {
+	mu       sync.Mutex
+	outcomes []string
+}
+
+func (r *fakeRecorder) ObserveAttempt(outcome string, _ time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, outcome)
+}
+
+func TestAttemptsAreReportedToMetrics(t *testing.T) {
+	var calls atomic.Int32
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	rec := &fakeRecorder{}
+	opts := testOptions()
+	opts.Metrics = rec
+	opts.Backoff = Backoff{Base: time.Millisecond, Cap: time.Millisecond, MaxAttempts: 2}
+	f := newFixture(t, srv.URL, opts)
+	f.publish("invoice.paid", `{}`)
+	f.runOnce() // 200: succeeded
+	f.publish("invoice.paid", `{}`)
+	f.runOnce() // 500, attempt 1 of 2: retry
+	time.Sleep(5 * time.Millisecond)
+	f.runOnce() // 500, attempt 2 of 2: dead
+
+	if want := []string{"succeeded", "retry", "dead"}; !slices.Equal(rec.outcomes, want) {
+		t.Errorf("outcomes = %v, want %v", rec.outcomes, want)
+	}
+}

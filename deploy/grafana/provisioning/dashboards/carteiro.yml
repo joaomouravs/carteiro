@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: carteiro
+    folder: Carteiro
+    type: file
+    # Edits made in the UI are lost on restart: the JSON file is the source.
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

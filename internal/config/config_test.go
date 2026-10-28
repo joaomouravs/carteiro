@@ -46,7 +46,7 @@ func TestLoadDefaults(t *testing.T) {
 	if !bytes.Equal(cfg.EncryptionKey, bytes.Repeat([]byte{1}, 32)) {
 		t.Errorf("EncryptionKey = %x", cfg.EncryptionKey)
 	}
-	if cfg.HTTPAddr != ":8080" || cfg.LogLevel != slog.LevelInfo || cfg.ShutdownTimeout != 15*time.Second || cfg.AllowHTTPEndpoints || cfg.AllowPrivateNetworks {
+	if cfg.HTTPAddr != ":8080" || cfg.MetricsAddr != ":9091" || cfg.LogLevel != slog.LevelInfo || cfg.ShutdownTimeout != 15*time.Second || cfg.AllowHTTPEndpoints || cfg.AllowPrivateNetworks {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.WorkerConcurrency != 10 || cfg.DeliveryTimeout != 15*time.Second || cfg.PollInterval != time.Second ||
@@ -88,11 +88,13 @@ func TestLoadOverrides(t *testing.T) {
 		"CARTEIRO_SHUTDOWN_TIMEOUT":       "30s",
 		"CARTEIRO_ALLOW_HTTP_ENDPOINTS":   "true",
 		"CARTEIRO_ALLOW_PRIVATE_NETWORKS": "true",
+		"CARTEIRO_METRICS_ADDR":           "127.0.0.1:9999",
 	})))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.LogLevel != slog.LevelDebug || cfg.ShutdownTimeout != 30*time.Second || !cfg.AllowHTTPEndpoints || !cfg.AllowPrivateNetworks {
+	if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.LogLevel != slog.LevelDebug || cfg.ShutdownTimeout != 30*time.Second || !cfg.AllowHTTPEndpoints || !cfg.AllowPrivateNetworks ||
+		cfg.MetricsAddr != "127.0.0.1:9999" {
 		t.Errorf("overrides not applied: %+v", cfg)
 	}
 }
@@ -118,6 +120,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"allow http not a bool", withRequired(map[string]string{"CARTEIRO_ALLOW_HTTP_ENDPOINTS": "sure"}), []string{"CARTEIRO_ALLOW_HTTP_ENDPOINTS"}},
 		{"allow private not a bool", withRequired(map[string]string{"CARTEIRO_ALLOW_PRIVATE_NETWORKS": "yes please"}), []string{"CARTEIRO_ALLOW_PRIVATE_NETWORKS"}},
 		{"address without port", withRequired(map[string]string{"CARTEIRO_HTTP_ADDR": "localhost"}), []string{"CARTEIRO_HTTP_ADDR"}},
+		{"metrics address without port", withRequired(map[string]string{"CARTEIRO_METRICS_ADDR": "9091"}), []string{"CARTEIRO_METRICS_ADDR"}},
 		{"non-positive timeout", withRequired(map[string]string{"CARTEIRO_SHUTDOWN_TIMEOUT": "0s"}), []string{"must be positive"}},
 		{"delivery timeout without unit", withRequired(map[string]string{"CARTEIRO_DELIVERY_TIMEOUT": "15"}), []string{"CARTEIRO_DELIVERY_TIMEOUT"}},
 		{"negative poll interval", withRequired(map[string]string{"CARTEIRO_POLL_INTERVAL": "-1s"}), []string{"CARTEIRO_POLL_INTERVAL: must be positive"}},

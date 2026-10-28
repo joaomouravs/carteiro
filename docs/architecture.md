@@ -217,13 +217,21 @@ receiver lives there, and it holds the cloud metadata service.
 
 - Structured JSON logs with `log/slog`, with `event_id`, `delivery_id`, and `endpoint_id`
   on every delivery log line.
-- Prometheus metrics:
-  - `carteiro_deliveries_total{outcome}`
-  - `carteiro_delivery_duration_seconds`
-  - `carteiro_queue_depth`
+- Prometheus metrics, served by every process on `CARTEIRO_METRICS_ADDR` rather than on
+  the public API (FR-20):
+  - `carteiro_deliveries_total{outcome}`: `succeeded`, `retry`, `dead`, or `stale` when
+    a lost lease discarded the result.
+  - `carteiro_delivery_duration_seconds`: a histogram of attempt durations.
+  - `carteiro_queue_depth{status}`: `pending` and `in_flight`, read from the database at
+    each scrape by worker processes.
   - `carteiro_oldest_pending_age_seconds`, the most useful alert signal, because it shows
-    workers falling behind before anything fails.
-- A Grafana dashboard in `deploy/` provisioned automatically by `docker compose`.
+    workers falling behind before anything fails. It counts from when the most overdue
+    delivery became due, not from when it was created: a delivery waiting out its backoff
+    is on schedule.
+  A failed database query fails the scrape instead of reporting an empty queue, so an
+  outage cannot look like a healthy graph.
+- A Grafana dashboard in `deploy/grafana`, provisioned by `docker compose --profile
+  observability`. Prometheus discovers worker replicas through DNS.
 
 ## Testing strategy
 

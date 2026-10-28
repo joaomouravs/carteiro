@@ -177,3 +177,16 @@ WHERE d.endpoint_id = sqlc.arg('endpoint_id')
   AND d.status = 'dead'
   AND d.created_at >= sqlc.arg('since')
   AND EXISTS (SELECT 1 FROM endpoints ep WHERE ep.id = d.endpoint_id AND ep.status = 'active');
+
+-- QueueStats feeds the queue metrics (FR-20), read at each Prometheus scrape.
+-- oldest_due_age_seconds counts from when the most overdue pending delivery
+-- became due, not from when it was created: a delivery waiting out its
+-- backoff is on schedule, while one past its time is waiting for a worker,
+-- which is what an alert should catch.
+-- name: QueueStats :one
+SELECT count(*) FILTER (WHERE status = 'pending')::bigint   AS pending,
+       count(*) FILTER (WHERE status = 'in_flight')::bigint AS in_flight,
+       COALESCE(extract(epoch FROM now() - min(next_attempt_at)
+                FILTER (WHERE status = 'pending' AND next_attempt_at <= now())), 0)::float8 AS oldest_due_age_seconds
+FROM deliveries
+WHERE status IN ('pending', 'in_flight');

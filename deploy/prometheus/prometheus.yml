@@ -1,0 +1,18 @@
+# Scrapes every Carteiro process on its metrics port (CARTEIRO_METRICS_ADDR).
+global:
+  scrape_interval: 5s # short, for a local demo; 15s to 60s is usual in production
+
+scrape_configs:
+  - job_name: carteiro-api
+    static_configs:
+      - targets: ["api:9091"]
+
+  # DNS discovery finds every replica of the worker service, so
+  # `docker compose up --scale worker=4` is scraped in full. A static
+  # "worker:9091" target would hit one replica per scrape.
+  - job_name: carteiro-worker
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 9091
+        refresh_interval: 10s
