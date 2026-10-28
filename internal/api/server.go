@@ -95,12 +95,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /v1/endpoints/{endpointID}", producer(s.updateEndpoint))
 	mux.Handle("DELETE /v1/endpoints/{endpointID}", producer(s.deleteEndpoint))
 	mux.Handle("POST /v1/endpoints/{endpointID}/enable", producer(s.enableEndpoint))
+	mux.Handle("POST /v1/endpoints/{endpointID}/replay", producer(s.replayEndpoint))
 	mux.Handle("POST /v1/events", producer(s.createEvent))
 	mux.Handle("GET /v1/events", producer(s.listEvents))
 	mux.Handle("GET /v1/events/{eventID}", producer(s.getEvent))
 	mux.Handle("GET /v1/events/{eventID}/deliveries", producer(s.listEventDeliveries))
 	mux.Handle("GET /v1/deliveries/{deliveryID}", producer(s.getDelivery))
 	mux.Handle("GET /v1/deliveries/{deliveryID}/attempts", producer(s.listAttempts))
+	mux.Handle("POST /v1/deliveries/{deliveryID}/replay", producer(s.replayDelivery))
 
 	// Outermost first: the request id exists before anything logs, and a
 	// panic anywhere below is still logged and answered.

@@ -57,6 +57,7 @@ RETURNING d.id, d.attempt_count;
 -- name: GetDeliveryJobs :many
 SELECT d.id,
        d.event_id,
+       d.replayed_at_attempt,
        d.endpoint_id,
        ev.event_type,
        ev.payload,
@@ -142,3 +143,37 @@ LIMIT sqlc.arg('limit');
 UPDATE deliveries
 SET status = 'dead', next_attempt_at = NULL, updated_at = now()
 WHERE endpoint_id = sqlc.arg('endpoint_id') AND status = 'pending';
+
+-- Replays (FR-18). A replayed delivery is due at once and gets a full retry
+-- schedule again from its current attempt (migration 00003). Both queries
+-- check the endpoint is active in the same statement, so a replay cannot
+-- slip in while the endpoint is being disabled.
+
+-- ReplayDelivery replays one finished delivery, dead or succeeded: resending
+-- a success is how a producer recovers from a receiver that lost data.
+-- name: ReplayDelivery :one
+UPDATE deliveries d
+SET status              = 'pending',
+    next_attempt_at     = now(),
+    replayed_at_attempt = d.attempt_count,
+    updated_at          = now()
+FROM endpoints ep
+WHERE d.id = sqlc.arg('id')
+  AND ep.id = d.endpoint_id
+  AND ep.status = 'active'
+  AND d.status IN ('dead', 'succeeded')
+RETURNING d.*;
+
+-- ReplayDeadDeliveries replays every dead delivery of an endpoint created
+-- since a time: what died while the receiver was broken. It uses the
+-- (endpoint_id, status) index.
+-- name: ReplayDeadDeliveries :execrows
+UPDATE deliveries d
+SET status              = 'pending',
+    next_attempt_at     = now(),
+    replayed_at_attempt = d.attempt_count,
+    updated_at          = now()
+WHERE d.endpoint_id = sqlc.arg('endpoint_id')
+  AND d.status = 'dead'
+  AND d.created_at >= sqlc.arg('since')
+  AND EXISTS (SELECT 1 FROM endpoints ep WHERE ep.id = d.endpoint_id AND ep.status = 'active');

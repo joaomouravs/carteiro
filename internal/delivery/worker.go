@@ -271,7 +271,9 @@ func (w *Worker) deliver(ctx context.Context, j job) {
 	success := res.err == nil && res.status >= 200 && res.status <= 299
 	status, retryIn := statusSucceeded, (*int64)(nil)
 	if !success {
-		if delay, ok := w.opts.Backoff.Next(int(j.attempt), res.retryAfter); ok {
+		// The schedule restarts at a replay (FR-18), so it counts attempts
+		// from there; the attempt number itself keeps growing.
+		if delay, ok := w.opts.Backoff.Next(int(j.attempt-j.ReplayedAtAttempt), res.retryAfter); ok {
 			ms := delay.Milliseconds()
 			status, retryIn = statusPending, &ms
 		} else {

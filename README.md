@@ -161,12 +161,14 @@ with AES-256-GCM, bound to its endpoint, under `CARTEIRO_ENCRYPTION_KEY`.
 | `PATCH /v1/endpoints/{id}` | API key | Change `url`, `description` or `event_types`; omitted fields keep their value |
 | `DELETE /v1/endpoints/{id}` | API key | Delete an endpoint and its delivery history |
 | `POST /v1/endpoints/{id}/enable` | API key | Re-enable a disabled endpoint, with a clean failure record |
+| `POST /v1/endpoints/{id}/replay` | API key | Replay every `dead` delivery created since `{"since": "<RFC 3339>"}`; returns `{"replayed": n}` |
 | `POST /v1/events` | API key | Publish an event (payload up to 256 KiB); optional `Idempotency-Key` |
 | `GET /v1/events` | API key | List events, newest first (paginated); optional `?event_type=` |
 | `GET /v1/events/{id}` | API key | Get an event |
 | `GET /v1/events/{id}/deliveries` | API key | The event's deliveries, one per endpoint it was sent to (paginated) |
 | `GET /v1/deliveries/{id}` | API key | Get a delivery: `status` (`pending`, `in_flight`, `succeeded`, `dead`), `attempt_count`, `next_attempt_at` |
 | `GET /v1/deliveries/{id}/attempts` | API key | Every HTTP attempt, newest first: status, first 4 KiB of the response body, error, duration (paginated) |
+| `POST /v1/deliveries/{id}/replay` | API key | Send a `dead` or `succeeded` delivery again, with a fresh retry schedule |
 
 ## Documentation
 

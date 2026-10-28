@@ -116,7 +116,7 @@ func (q *Queries) CompleteDelivery(ctx context.Context, arg CompleteDeliveryPara
 
 const getDelivery = `-- name: GetDelivery :one
 
-SELECT d.id, d.event_id, d.endpoint_id, d.status, d.attempt_count, d.next_attempt_at, d.lease_expires_at, d.created_at, d.updated_at FROM deliveries d
+SELECT d.id, d.event_id, d.endpoint_id, d.status, d.attempt_count, d.next_attempt_at, d.lease_expires_at, d.created_at, d.updated_at, d.replayed_at_attempt FROM deliveries d
 JOIN events e ON e.id = d.event_id
 WHERE d.id = $1 AND e.application_id = $2
 `
@@ -142,6 +142,7 @@ func (q *Queries) GetDelivery(ctx context.Context, arg GetDeliveryParams) (Deliv
 		&i.LeaseExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ReplayedAtAttempt,
 	)
 	return i, err
 }
@@ -149,6 +150,7 @@ func (q *Queries) GetDelivery(ctx context.Context, arg GetDeliveryParams) (Deliv
 const getDeliveryJobs = `-- name: GetDeliveryJobs :many
 SELECT d.id,
        d.event_id,
+       d.replayed_at_attempt,
        d.endpoint_id,
        ev.event_type,
        ev.payload,
@@ -170,6 +172,7 @@ WHERE d.id = ANY ($1::uuid[])
 type GetDeliveryJobsRow struct {
 	ID                uuid.UUID
 	EventID           uuid.UUID
+	ReplayedAtAttempt int32
 	EndpointID        uuid.UUID
 	EventType         string
 	Payload           []byte
@@ -193,6 +196,7 @@ func (q *Queries) GetDeliveryJobs(ctx context.Context, ids []uuid.UUID) ([]GetDe
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventID,
+			&i.ReplayedAtAttempt,
 			&i.EndpointID,
 			&i.EventType,
 			&i.Payload,
@@ -314,7 +318,7 @@ func (q *Queries) ListAttempts(ctx context.Context, arg ListAttemptsParams) ([]A
 }
 
 const listEventDeliveries = `-- name: ListEventDeliveries :many
-SELECT id, event_id, endpoint_id, status, attempt_count, next_attempt_at, lease_expires_at, created_at, updated_at FROM deliveries
+SELECT id, event_id, endpoint_id, status, attempt_count, next_attempt_at, lease_expires_at, created_at, updated_at, replayed_at_attempt FROM deliveries
 WHERE event_id = $1
   AND ($2::uuid IS NULL OR id < $2::uuid)
 ORDER BY id DESC
@@ -348,6 +352,7 @@ func (q *Queries) ListEventDeliveries(ctx context.Context, arg ListEventDeliveri
 			&i.LeaseExpiresAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ReplayedAtAttempt,
 		); err != nil {
 			return nil, err
 		}
@@ -408,4 +413,71 @@ func (q *Queries) ReclaimExpiredDeliveries(ctx context.Context, arg ReclaimExpir
 		return nil, err
 	}
 	return items, nil
+}
+
+const replayDeadDeliveries = `-- name: ReplayDeadDeliveries :execrows
+UPDATE deliveries d
+SET status              = 'pending',
+    next_attempt_at     = now(),
+    replayed_at_attempt = d.attempt_count,
+    updated_at          = now()
+WHERE d.endpoint_id = $1
+  AND d.status = 'dead'
+  AND d.created_at >= $2
+  AND EXISTS (SELECT 1 FROM endpoints ep WHERE ep.id = d.endpoint_id AND ep.status = 'active')
+`
+
+type ReplayDeadDeliveriesParams struct {
+	EndpointID uuid.UUID
+	Since      time.Time
+}
+
+// ReplayDeadDeliveries replays every dead delivery of an endpoint created
+// since a time: what died while the receiver was broken. It uses the
+// (endpoint_id, status) index.
+func (q *Queries) ReplayDeadDeliveries(ctx context.Context, arg ReplayDeadDeliveriesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, replayDeadDeliveries, arg.EndpointID, arg.Since)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const replayDelivery = `-- name: ReplayDelivery :one
+
+UPDATE deliveries d
+SET status              = 'pending',
+    next_attempt_at     = now(),
+    replayed_at_attempt = d.attempt_count,
+    updated_at          = now()
+FROM endpoints ep
+WHERE d.id = $1
+  AND ep.id = d.endpoint_id
+  AND ep.status = 'active'
+  AND d.status IN ('dead', 'succeeded')
+RETURNING d.id, d.event_id, d.endpoint_id, d.status, d.attempt_count, d.next_attempt_at, d.lease_expires_at, d.created_at, d.updated_at, d.replayed_at_attempt
+`
+
+// Replays (FR-18). A replayed delivery is due at once and gets a full retry
+// schedule again from its current attempt (migration 00003). Both queries
+// check the endpoint is active in the same statement, so a replay cannot
+// slip in while the endpoint is being disabled.
+// ReplayDelivery replays one finished delivery, dead or succeeded: resending
+// a success is how a producer recovers from a receiver that lost data.
+func (q *Queries) ReplayDelivery(ctx context.Context, id uuid.UUID) (Delivery, error) {
+	row := q.db.QueryRow(ctx, replayDelivery, id)
+	var i Delivery
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.EndpointID,
+		&i.Status,
+		&i.AttemptCount,
+		&i.NextAttemptAt,
+		&i.LeaseExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ReplayedAtAttempt,
+	)
+	return i, err
 }

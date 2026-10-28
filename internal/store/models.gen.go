@@ -39,15 +39,16 @@ type Attempt struct {
 }
 
 type Delivery struct {
-	ID             uuid.UUID
-	EventID        uuid.UUID
-	EndpointID     uuid.UUID
-	Status         string
-	AttemptCount   int32
-	NextAttemptAt  *time.Time
-	LeaseExpiresAt *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                uuid.UUID
+	EventID           uuid.UUID
+	EndpointID        uuid.UUID
+	Status            string
+	AttemptCount      int32
+	NextAttemptAt     *time.Time
+	LeaseExpiresAt    *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	ReplayedAtAttempt int32
 }
 
 type Endpoint struct {

@@ -238,3 +238,43 @@ func (s *Server) enableEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, toEndpointResponse(ep))
 }
+
+// replayEndpoint replays every dead delivery of the endpoint created since a
+// time (FR-18): the usual step after fixing a receiver and enabling its
+// endpoint again.
+func (s *Server) replayEndpoint(w http.ResponseWriter, r *http.Request) {
+	ep, ok := s.endpointFromPath(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		// A string rather than a time.Time, so a malformed value is a
+		// field error (422) instead of a generic JSON error.
+		Since string `json:"since"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	since, err := time.Parse(time.RFC3339, in.Since)
+	switch {
+	case in.Since == "":
+		writeValidation(w, r, []fieldError{{"since", "is required"}})
+		return
+	case err != nil:
+		writeValidation(w, r, []fieldError{{"since", "must be an RFC 3339 timestamp, such as 2026-10-28T09:00:00Z"}})
+		return
+	case since.After(time.Now()):
+		writeValidation(w, r, []fieldError{{"since", "must not be in the future"}})
+		return
+	}
+	if ep.Status != "active" {
+		writeProblem(w, r, http.StatusConflict, "the endpoint is disabled; enable it before replaying")
+		return
+	}
+	n, err := s.q.ReplayDeadDeliveries(r.Context(), store.ReplayDeadDeliveriesParams{EndpointID: ep.ID, Since: since})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]int64{"replayed": n})
+}

@@ -60,7 +60,7 @@ erDiagram
 | `endpoints` | `url`, `event_types text[]`, `status`, `consecutive_failures`, `failing_since` | `status` is `active` or `disabled`. |
 | `endpoint_secrets` | `secret_ciphertext`, `expires_at` | Several rows during rotation; `expires_at` is null for the current secret. |
 | `events` | `event_type`, `payload jsonb`, `idempotency_key`, `payload_hash` | `UNIQUE (application_id, idempotency_key)`. IDs are UUIDv7 so they sort by time. |
-| `deliveries` | `status`, `attempt_count`, `next_attempt_at`, `lease_expires_at` | `UNIQUE (event_id, endpoint_id)`. This table is the queue. |
+| `deliveries` | `status`, `attempt_count`, `next_attempt_at`, `lease_expires_at`, `replayed_at_attempt` | `UNIQUE (event_id, endpoint_id)`. This table is the queue. A replay restarts the retry schedule from `replayed_at_attempt`, since `attempt_count` is the fencing token and never goes back. |
 | `attempts` | `attempt_number`, `response_status`, `duration_ms`, `response_body`, `error` | Append-only log. |
 
 Two partial indexes keep the queue queries cheap no matter how much history accumulates:

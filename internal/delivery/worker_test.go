@@ -690,3 +690,27 @@ func TestDisabledEndpointIsNotClaimed(t *testing.T) {
 		t.Errorf("delivery = %+v, want it left pending, to run if the endpoint is enabled", d)
 	}
 }
+
+// TestReplayedDeliveryGetsAFullSchedule is the reason for migration 00003: a
+// delivery that died on its last attempt and is replayed must be retried on
+// failure, not die again on its first new attempt.
+func TestReplayedDeliveryGetsAFullSchedule(t *testing.T) {
+	srv := receiver(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
+	opts := testOptions()
+	opts.Backoff = Backoff{Base: time.Millisecond, Cap: time.Millisecond, MaxAttempts: 3}
+	f := newFixture(t, srv.URL, opts)
+	_, id := f.publish("invoice.paid", `{}`)
+	// What ReplayDelivery leaves behind for a delivery that died on attempt 3.
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE deliveries SET attempt_count = 3, replayed_at_attempt = 3 WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	f.runOnce()
+
+	if d := f.delivery(id); d.status != statusPending || d.attemptCount != 4 {
+		t.Errorf("delivery = %+v, want pending after attempt 4: the replay's first of 3", d)
+	}
+	if a := f.attempts(id); len(a) != 1 || a[0].number != 4 {
+		t.Errorf("attempts = %+v, want attempt number 4: numbering continues", a)
+	}
+}

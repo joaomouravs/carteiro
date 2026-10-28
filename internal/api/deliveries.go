@@ -118,3 +118,38 @@ func (s *Server) listAttempts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, paginate(rows, page.limit,
 		func(a store.Attempt) uuid.UUID { return a.ID }, toAttemptResponse))
 }
+
+// replayDelivery sends one finished delivery again (FR-18): a dead one after
+// its receiver is fixed, or a succeeded one whose receiver lost the data.
+func (s *Server) replayDelivery(w http.ResponseWriter, r *http.Request) {
+	d, ok := s.deliveryFromPath(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	if d.Status == "pending" || d.Status == "in_flight" {
+		writeProblem(w, r, http.StatusConflict, "the delivery is already queued")
+		return
+	}
+	ep, err := s.q.GetEndpoint(ctx, store.GetEndpointParams{ID: d.EndpointID, ApplicationID: applicationIDFrom(ctx)})
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	if ep.Status != "active" {
+		writeProblem(w, r, http.StatusConflict, "the delivery's endpoint is disabled; enable it before replaying")
+		return
+	}
+	replayed, err := s.q.ReplayDelivery(ctx, d.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The checks above passed, but the delivery or its endpoint changed
+		// before the update ran.
+		writeProblem(w, r, http.StatusConflict, "the delivery changed while being replayed; try again")
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, toDeliveryResponse(replayed))
+}
